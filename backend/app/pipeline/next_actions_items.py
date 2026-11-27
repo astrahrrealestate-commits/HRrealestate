@@ -42,6 +42,15 @@ class NextAction(Contract):
     approval_id: UUID | None
     prepared: str | None
     target_url: str
+    channel: str | None = None
+    sender_name: str | None = None
+    unit_label: str | None = None
+    subject: str | None = None
+    last_at: datetime | None = None
+    waiting_side: Literal["owner", "third_party"] | None = None
+    waiting_days: int | None = None
+    obligation: str | None = None
+    has_draft: bool = False
 
 
 class ActionViewer:

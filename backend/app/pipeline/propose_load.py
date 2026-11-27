@@ -111,3 +111,11 @@ def load(session: Session, msg: MessageRow, case: Case, und: Understanding, embe
     return Loaded(
         ctx, msg.company_id, bool(company and company.paused), _message_ids(d), _sources(d), _dossier_source(d)
     )
+
+
+def with_dossier(loaded: Loaded, dossier: Dossier) -> Loaded:
+    """Re-render a `Loaded` context after enriching its `Dossier` (e.g. instruction-aware enhancement)."""
+    ctx = replace(loaded.ctx, dossier=tuple(render_dossier(dossier)))
+    return Loaded(
+        ctx, loaded.company_id, loaded.paused, _message_ids(dossier), _sources(dossier), _dossier_source(dossier)
+    )

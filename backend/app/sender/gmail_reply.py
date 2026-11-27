@@ -98,8 +98,14 @@ def assert_addressee(session: Session, action: ActionRow, latest: MessageRow) ->
 
 def gmail_draft(session: Session, action: ActionRow, body: str, key: str) -> Plan:
     """Draft mode: a draft in the thread of the case's latest Gmail inbound. Harjot reviews and sends it himself."""
+    from dataclasses import replace
+    from uuid import UUID
+
     msg = latest_inbound(session, action.company_id, action.case_id, Channel.gmail)
     if msg is None or not msg.thread_ref:
         raise SendBlockedError("no Gmail thread on this case to draft a reply in")
     assert_addressee(session, action, msg)
-    return reply_plan(session, msg, msg.sender_identity, _draft_subject(action, msg), body, key)
+    plan = reply_plan(session, msg, msg.sender_identity, _draft_subject(action, msg), body, key)
+    raw_ids = (action.payload or {}).get("attachment_ids") or ()
+    att_ids = tuple(UUID(str(x)) for x in raw_ids if str(x))
+    return replace(plan, company_id=action.company_id, attachment_ids=att_ids) if att_ids else plan

@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,7 @@ from app.pipeline.next_actions import (
     category_brief,
     category_summaries,
     next_actions,
+    waiting_split,
 )
 
 ShownCategory = Literal["maintenance", "finance", "legal", "business", "administration", "new_projects"]
@@ -36,10 +37,16 @@ router = APIRouter(
 class CategoryDeskResponse(BaseModel):
     brief: str | None
     actions: list[NextAction]
+    waiting_for_us: list[NextAction] = Field(default_factory=list)
+    waiting_for_other: list[NextAction] = Field(default_factory=list)
 
 
 def _today() -> date:
     return datetime.now(UTC).astimezone(BRIXX_TZ).date()
+
+
+def _viewer(principal: Principal) -> ActionViewer:
+    return ActionViewer(money=principal.access.can("money"), inbox=principal.access.can("inbox"))
 
 
 def _brixx(session: Session, principal: Principal) -> tuple[ActionViewer, list[BrixxAttentionLike]]:
@@ -77,11 +84,19 @@ def get_category_desk(
     category: ShownCategory,
     engine: Annotated[Engine, Depends(get_engine)],
     principal: Annotated[Principal, Depends(require_session)],
-    limit: int = Query(default=15, ge=1, le=50),
+    limit: int = Query(default=25, ge=1, le=50),
+    urgency: Literal["all", "emergency", "high"] = Query(default="all"),
 ) -> CategoryDeskResponse:
     with Session(engine) as session:
         viewer, brixx = _brixx(session, principal)
+        cat = Category(category)
         actions = next_actions(
-            session, principal.company_id, Category(category), viewer, limit=limit, brixx_items=brixx
+            session, principal.company_id, cat, viewer, limit=limit, brixx_items=brixx, urgency_filter=urgency
         )
-    return CategoryDeskResponse(brief=category_brief(actions), actions=actions)
+        wait_us, wait_other = waiting_split(session, principal.company_id, cat, viewer, limit=limit)
+    return CategoryDeskResponse(
+        brief=category_brief(actions),
+        actions=actions,
+        waiting_for_us=wait_us,
+        waiting_for_other=wait_other,
+    )

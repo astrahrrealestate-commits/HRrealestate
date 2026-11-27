@@ -9,6 +9,7 @@ also scores Harjot's drafting standard. No database.
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,6 +28,7 @@ from app.contracts import (
     Suspicious,
     Understanding,
     Urgency,
+    WaitingSide,
 )  # fmt: skip
 from app.contracts.person_memory import PersonMemory
 from app.contracts.research import Finding
@@ -134,7 +136,8 @@ def context(i: V6Input, persona: Persona) -> ProposerContext:
     und = Understanding(
         category=i.category, intent="Message", urgency=i.urgency, requires_reply=True, entities=Entities.none(),
         suspicious=Suspicious(flag=False, reason=None), confidence=0.9, sender_role=None, needs_research=False,
-        research_questions=[], prompt_version="understanding/v4",
+        research_questions=[], waiting_side=WaitingSide.none, open_obligation=None, expected_days=None,
+        prompt_version="understanding/v4",
     )  # fmt: skip
     return ProposerContext(
         case_id=UUID(int=1), channel=Channel.gmail, subject="Re", message_text=i.message, understanding=und,
@@ -156,6 +159,14 @@ def hard_problem(label: V6Label, out: V6Output) -> str | None:
         return "too few questions"
     if label.escalate and not out.escalated:
         return "no escalation"
+    return None
+
+
+def judge_problem(asserts: dict[str, Any]) -> str | None:
+    """The first failed judge check with its reason, for the report's misses."""
+    for result in asserts.values():
+        if not result.value:
+            return f"judge: {cell(str(result.reason or 'failed'), 160)}"
     return None
 
 
@@ -203,7 +214,7 @@ def run(version: str, settings: Settings) -> EvalResult:
         scores["judge_pass"] = sum(all(a.value for a in asserts.values()) for *_, asserts in done) / (len(done) or 1)
     misses = [
         f"| {name} | {problem} | {cell(o.variants[0] if o.variants else '')} |"
-        for name, g, o, _ in done
-        if (problem := hard_problem(g, o)) is not None
+        for name, g, o, asserts in done
+        if (problem := hard_problem(g, o) or judge_problem(asserts)) is not None
     ]
     return EvalResult(scores, misses, MISS_HEADER, loaded)

@@ -14,6 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
+from sqlalchemy import case as sql_case
 from sqlalchemy.orm import Session
 
 from app.api.agent.calendar_match import open_case_on, unit_named
@@ -43,7 +44,7 @@ from app.channels.calendar import CalendarUnavailableError, get_calendar_client
 from app.context.compiler import SUMMARY_PREFIX, compile_concierge_context
 from app.context.selection import rank_cases
 from app.context.super_agent_prompt import build_super_agent_system_prompt
-from app.contracts import ActionType, Channel, ConciergePlan, Direction, Intent, PlanStep
+from app.contracts import ActionType, Channel, ConciergePlan, Direction, Intent, PlanStep, Urgency
 from app.contracts.sourced_answer import Source
 from app.core.errors import AgentFailedError, NotFoundError
 from app.core.ids import case_ref as short_case_ref
@@ -1543,10 +1544,16 @@ def ask_agent(
         if coverage_text:
             page_facts_text = f"{page_facts_text}\n\n{coverage_text}".strip() if page_facts_text else coverage_text
 
+        urgency_order = sql_case(
+            (Case.urgency == Urgency.emergency, 0),
+            (Case.urgency == Urgency.high, 1),
+            (Case.urgency == Urgency.normal, 2),
+            else_=3,
+        )
         cases = session.scalars(
             select(Case)
             .where(Case.company_id == company_id, Case.state.in_(case_repo.OPEN_STATES))
-            .order_by(Case.opened_at.desc(), Case.id.desc())
+            .order_by(urgency_order.asc(), Case.opened_at.desc(), Case.id.desc())
             .limit(20)
         ).all()
 

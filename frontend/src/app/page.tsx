@@ -80,7 +80,7 @@ export default function TodayPage() {
       if (snap.threadsRes.status === "fulfilled") {
         setThreads(snap.threadsRes.value.threads || []);
       }
-      if (snap.pulseRes.status === "fulfilled" && snap.pulseRes.value.isLive) {
+      if (snap.pulseRes.status === "fulfilled" && snap.pulseRes.value.isLive && snap.pulseRes.value.metrics) {
         setMetrics(snap.pulseRes.value.metrics);
       }
       if (snap.attentionRes.status === "fulfilled") {
@@ -323,35 +323,37 @@ export default function TodayPage() {
           <StatLine items={statLineItems} className="pt-0.5" />
         </header>
 
-        {/* M13 Live 6-Category Desk (/api/dashboard/categories) */}
+        {/* M13 Live 6-Category Desk + All (BRIXX & Calendar) */}
         <CategoryDesk
           onAskAstra={(action) => {
             superAgent.setActiveDrawerInfo({ title: action.title, kind: "Next Action" });
             superAgent.setSelectedContext(
-              `${action.category}: ${action.title}${action.why ? ` — ${action.why}` : ""}`
+              `${action.category} (${action.urgency}): ${action.title}${action.case_id ? ` [case:${action.case_id}]` : ""}${action.why ? ` — ${action.why}` : ""}`
             );
             superAgent.setIsOpen(true);
           }}
+          allCount={attentionTotal}
+          allHasUrgent={urgentAttentionCount > 0}
+          allContent={
+            <div className="space-y-5">
+              <CalendarApprovalsCard
+                onApproveSuccess={(_eventId, title) => {
+                  showToast(`Visit approved & synced to Google Calendar: ${title}`);
+                }}
+                onInviteAnswered={(title, response) => {
+                  showToast(`Invite ${response}: ${title}`);
+                }}
+              />
+
+              <BrixxAttentionCard
+                items={attentionItems}
+                total={attentionTotal}
+                urgentTotal={urgentAttentionCount}
+                onlyUrgent={false}
+              />
+            </div>
+          }
         />
-
-        {/* Meeting Requests & BRIXX Attention */}
-        <div className="space-y-5">
-          <CalendarApprovalsCard
-            onApproveSuccess={(_eventId, title) => {
-              showToast(`Visit approved & synced to Google Calendar: ${title}`);
-            }}
-            onInviteAnswered={(title, response) => {
-              showToast(`Invite ${response}: ${title}`);
-            }}
-          />
-
-          <BrixxAttentionCard
-            items={attentionItems}
-            total={attentionTotal}
-            urgentTotal={urgentAttentionCount}
-            onlyUrgent={false}
-          />
-        </div>
 
         {/* Quiet Single-Line Portfolio Footer */}
         <footer className="border-t border-[var(--line)] pt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[12px] text-[var(--ink-3)]">

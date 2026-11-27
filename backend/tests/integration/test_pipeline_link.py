@@ -233,3 +233,221 @@ def test_unreadable_message_lands_in_administration(
     assert result is not None
     with Session(migrated_engine) as s:
         assert s.scalar(select(Case.category).where(Case.id == result.case_id)) is Category.administration
+
+
+def test_two_different_gmail_emails_from_same_sender_open_separate_cases(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """Two distinct Gmail threads from the same email address must never be merged into one thread."""
+    cid = committed_company.id
+    email_addr = "tenant@example.test"
+    m1 = _message(
+        migrated_engine,
+        cid,
+        "Er lekt water in de keuken",
+        thread="gmail-thr-1",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={"subject": "Lekkage keuken", "message_id": "<m1@example.test>"},
+    )
+    m2 = _message(
+        migrated_engine,
+        cid,
+        "Vraag over de huurfactuur",
+        at=NOW + timedelta(minutes=15),
+        thread="gmail-thr-2",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={"subject": "Huurfactuur november", "message_id": "<m2@example.test>"},
+    )
+    reply_to_m1 = _message(
+        migrated_engine,
+        cid,
+        "Hier is een extra foto van de lekkage",
+        at=NOW + timedelta(minutes=30),
+        thread="gmail-thr-1",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={"subject": "Re: Lekkage keuken", "message_id": "<m3@example.test>", "in_reply_to": "<m1@example.test>"},
+    )
+
+    r1 = link_message(migrated_engine, test_settings, m1)
+    r2 = link_message(migrated_engine, test_settings, m2)
+    r3 = link_message(migrated_engine, test_settings, reply_to_m1)
+
+    assert r1 is not None
+    assert r1.method is LinkMethod.new_case
+    assert r2 is not None
+    assert r2.method is LinkMethod.new_case
+    assert r2.case_id != r1.case_id
+    assert r3 is not None
+    assert r3.method is LinkMethod.thread
+    assert r3.case_id == r1.case_id
+
+
+def test_gmail_reply_links_via_in_reply_to_when_thread_ref_differs(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """An email with In-Reply-To matching an open Gmail case joins that thread even if thread_ref differs."""
+    cid = committed_company.id
+    email_addr = "tenant@example.test"
+    m1 = _message(
+        migrated_engine,
+        cid,
+        "Vraag over verwarming",
+        thread="gmail-thr-a",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={"subject": "Verwarming", "message_id": "<orig-1@example.test>"},
+    )
+    r1 = link_message(migrated_engine, test_settings, m1)
+    assert r1 is not None
+
+    m2 = _message(
+        migrated_engine,
+        cid,
+        "Nog een aanvulling",
+        at=NOW + timedelta(minutes=20),
+        thread="gmail-thr-b",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={
+            "subject": "Re: Verwarming",
+            "message_id": "<reply-1@example.test>",
+            "in_reply_to": "<orig-1@example.test>",
+        },
+    )
+    r2 = link_message(migrated_engine, test_settings, m2)
+    assert r2 is not None
+    assert (r2.case_id, r2.method) == (r1.case_id, LinkMethod.thread)
+
+
+def test_gmail_forward_opens_new_case_even_when_in_reply_to_matches_open_case(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """A forwarded email in a new Gmail thread must open a new case even if Gmail copied In-Reply-To."""
+    cid = committed_company.id
+    email_addr = "tenant@example.test"
+    orig = _message(
+        migrated_engine,
+        cid,
+        "Origineel bericht over de CV-ketel",
+        thread="gmail-thr-orig",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={"subject": "CV-ketel", "message_id": "<orig-fwd-1@example.test>"},
+    )
+    r_orig = link_message(migrated_engine, test_settings, orig)
+    assert r_orig is not None
+
+    fwd_by_subject = _message(
+        migrated_engine,
+        cid,
+        "Zie onderstaand bericht",
+        at=NOW + timedelta(minutes=15),
+        thread="gmail-thr-fwd-1",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={
+            "subject": "Fwd: CV-ketel",
+            "message_id": "<fwd-1@example.test>",
+            "in_reply_to": "<orig-fwd-1@example.test>",
+        },
+    )
+    fwd_by_marker = _message(
+        migrated_engine,
+        cid,
+        "---------- Forwarded message ---------\nFrom: iemand@example.test\n\nGraag oppakken",
+        at=NOW + timedelta(minutes=30),
+        thread="gmail-thr-fwd-2",
+        sender=email_addr,
+        channel=Channel.gmail,
+        meta={
+            "subject": "CV-ketel melding",
+            "message_id": "<fwd-2@example.test>",
+            "in_reply_to": "<orig-fwd-1@example.test>",
+        },
+    )
+
+    r_fwd_1 = link_message(migrated_engine, test_settings, fwd_by_subject)
+    r_fwd_2 = link_message(migrated_engine, test_settings, fwd_by_marker)
+    assert r_fwd_1 is not None
+    assert r_fwd_1.method is LinkMethod.new_case
+    assert r_fwd_2 is not None
+    assert r_fwd_2.method is LinkMethod.new_case
+    assert r_fwd_1.case_id != r_orig.case_id
+    assert r_fwd_2.case_id != r_orig.case_id
+    assert r_fwd_2.case_id != r_fwd_1.case_id
+
+
+def test_whatsapp_and_gmail_from_same_person_stay_separate_cases(
+    migrated_engine: Engine, committed_company: Company, test_settings: Settings
+) -> None:
+    """A WhatsApp message from a contact with an open Gmail case must never merge into the Gmail thread."""
+    from app.db.models import ChannelIdentity
+
+    cid = committed_company.id
+    valid_from = NOW.date()
+    with Session(migrated_engine) as s, s.begin():
+        person = Person(company_id=cid, display_name="Sanne de Vries", kind=PersonKind.tenant, valid_from=valid_from)
+        s.add(person)
+        s.flush()
+        s.add_all(
+            [
+                ChannelIdentity(
+                    company_id=cid,
+                    person_id=person.id,
+                    channel=Channel.gmail,
+                    identity="sanne@example.test",
+                    valid_from=valid_from,
+                ),
+                ChannelIdentity(
+                    company_id=cid,
+                    person_id=person.id,
+                    channel=Channel.whatsapp,
+                    identity=PHONE,
+                    valid_from=valid_from,
+                ),
+            ]
+        )
+
+    gmail_mid = _message(
+        migrated_engine,
+        cid,
+        "Huurfactuur vraag",
+        thread="gm-sanne-1",
+        sender="sanne@example.test",
+        channel=Channel.gmail,
+        meta={"subject": "Huurfactuur", "message_id": "<s1@example.test>"},
+    )
+    wa_mid = _message(
+        migrated_engine,
+        cid,
+        "Lekkage in de badkamer",
+        at=NOW + timedelta(minutes=10),
+        thread=PHONE,
+        sender=PHONE,
+        channel=Channel.whatsapp,
+    )
+    wa_followup = _message(
+        migrated_engine,
+        cid,
+        "Foto komt eraan",
+        at=NOW + timedelta(days=5),
+        thread=PHONE,
+        sender=PHONE,
+        channel=Channel.whatsapp,
+    )
+
+    r_gmail = link_message(migrated_engine, test_settings, gmail_mid)
+    r_wa1 = link_message(migrated_engine, test_settings, wa_mid)
+    r_wa2 = link_message(migrated_engine, test_settings, wa_followup)
+
+    assert r_gmail is not None
+    assert r_wa1 is not None
+    assert r_wa2 is not None
+    assert r_wa1.person_id == r_gmail.person_id
+    assert r_wa1.case_id != r_gmail.case_id
+    assert r_wa1.method is LinkMethod.new_case
+    assert r_wa2.case_id == r_wa1.case_id
+    assert r_wa2.method is LinkMethod.open_case

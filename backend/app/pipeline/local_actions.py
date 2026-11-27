@@ -43,9 +43,10 @@ def apply_local(engine: Engine, action_id: UUID, draft_version: int) -> LocalOut
             return "blocked"
         payload = action.payload
         if action.type is ActionType.update_case_state:
-            case_repo.transition(
-                session, action.company_id, action.case_id, CaseState(payload["new_state"]), actor="owner"
-            )
+            new_state = CaseState(payload["new_state"])
+            case_repo.transition(session, action.company_id, action.case_id, new_state, actor="owner")
+            if new_state in (CaseState.resolved, CaseState.closed, CaseState.waiting_on_third_party):
+                work_repo.close_case_tasks(session, action.company_id, action.case_id, source="promise")
         else:
             work_repo.create_task(
                 session,

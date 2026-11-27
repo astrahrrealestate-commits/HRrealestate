@@ -42,9 +42,20 @@ interface InboxConversationViewProps {
   thread: InboxThread | null;
   initialDraft?: string;
   onBack?: () => void;
-  onApproveDraft?: (threadId: string, draftText: string, channel: "whatsapp" | "gmail", replyToMessageId?: string) => void | Promise<boolean>;
+  onApproveDraft?: (
+    threadId: string,
+    draftText: string,
+    channel: "whatsapp" | "gmail",
+    replyToMessageId?: string,
+    attachmentIds?: string[]
+  ) => void | Promise<boolean>;
   onRejectDraft?: (threadId: string) => void;
-  onSendManualReply?: (threadId: string, replyText: string, replyToMessageId?: string) => void | Promise<boolean>;
+  onSendManualReply?: (
+    threadId: string,
+    replyText: string,
+    replyToMessageId?: string,
+    attachmentIds?: string[]
+  ) => void | Promise<boolean>;
   onMarkDone?: (threadId: string) => void;
   onSnooze?: (threadId: string) => void;
   onMarkUnread?: (threadId: string) => void;
@@ -132,46 +143,51 @@ export function InboxConversationView({
     setIsMoreOpen(false);
   };
 
-  // Sync thread messages to local state
+  const prevThreadIdRef = useRef<string | null>(null);
+
+  // Sync thread messages and pending drafts without resetting expanded emails on 8s polls
+  // or falsely marking historical/drafted threads as just-sent.
   useEffect(() => {
-    if (thread) {
-      const msgs =
-        Array.isArray(thread.messages) && thread.messages.length > 0
-          ? thread.messages
-          : [
-              {
-                id: `msg-${thread.id}-single`,
-                sender: "tenant" as const,
-                senderName: thread.senderName,
-                senderContact: thread.senderContact,
-                sentAt: thread.receivedAt,
-                timeFormatted: thread.relativeTime || "Today",
-                body: thread.latestSnippet || thread.subject || "",
-                channel: thread.channel,
-              },
-            ];
-      setLocalMessages(msgs);
-      const isAlreadyReplied = thread.status === "approved" || thread.status === "replied";
-      setIsSent(isAlreadyReplied);
+    if (!thread) return;
+    const msgs =
+      Array.isArray(thread.messages) && thread.messages.length > 0
+        ? thread.messages
+        : [
+            {
+              id: `msg-${thread.id}-single`,
+              sender: "tenant" as const,
+              senderName: thread.senderName,
+              senderContact: thread.senderContact,
+              sentAt: thread.receivedAt,
+              timeFormatted: thread.relativeTime || "Today",
+              body: thread.latestSnippet || thread.subject || "",
+              channel: thread.channel,
+            },
+          ];
+    setLocalMessages(msgs);
 
-      // Resolve channel drafts safely (ignore empty [] arrays so fallback works)
-      const preferredDrafts =
-        thread.channel === "whatsapp"
-          ? thread.draftProposal?.whatsappDrafts
-          : thread.draftProposal?.gmailDrafts;
-      const channelDrafts =
-        (preferredDrafts && preferredDrafts.length > 0 ? preferredDrafts : null) ||
-        (thread.draftProposal?.drafts?.length ? thread.draftProposal.drafts : null) ||
-        (thread.draftProposal?.whatsappDrafts?.length ? thread.draftProposal.whatsappDrafts : null) ||
-        (thread.draftProposal?.gmailDrafts?.length ? thread.draftProposal.gmailDrafts : null) ||
-        [];
-
-      const draft = !isAlreadyReplied && channelDrafts.length > 0 ? channelDrafts[0]?.text || "" : "";
-      setStagedDraftText(initialDraft || draft);
+    if (prevThreadIdRef.current !== thread.id) {
+      prevThreadIdRef.current = thread.id;
+      setIsSent(false);
       const lastMsgId = msgs[msgs.length - 1]?.id;
       setExpandedMsgIds(lastMsgId ? new Set([lastMsgId]) : new Set());
       setLinkSuccessName(null);
+      setReplyingTo(null);
     }
+
+    const preferredDrafts =
+      thread.channel === "whatsapp"
+        ? thread.draftProposal?.whatsappDrafts
+        : thread.draftProposal?.gmailDrafts;
+    const channelDrafts =
+      (preferredDrafts && preferredDrafts.length > 0 ? preferredDrafts : null) ||
+      (thread.draftProposal?.drafts?.length ? thread.draftProposal.drafts : null) ||
+      (thread.draftProposal?.whatsappDrafts?.length ? thread.draftProposal.whatsappDrafts : null) ||
+      (thread.draftProposal?.gmailDrafts?.length ? thread.draftProposal.gmailDrafts : null) ||
+      [];
+
+    const draft = channelDrafts.length > 0 ? channelDrafts[0]?.text || "" : "";
+    setStagedDraftText(initialDraft || draft);
   }, [thread?.id, thread?.status, thread?.messages?.length, thread?.draftProposal, initialDraft]);
 
   // Scroll only the message pane container (never outer window/body)
@@ -182,35 +198,22 @@ export function InboxConversationView({
     }
   }, [localMessages.length, isSent]);
 
-  // Keyboard shortcut listener (Section 5.2): 'a' accept, 'r' reject, 'Esc' back
+  // Keyboard shortcut listener: 'Esc' back (never auto-send/reject drafts on bare or modified letter keys)
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (
-        ["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)
-      ) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable)) {
         return;
       }
-
-      if (e.key === "a" || e.key === "A") {
-        if (thread && stagedDraftText && !isSent) {
-          e.preventDefault();
-          handleAcceptAndSend(stagedDraftText, thread.channel);
-        }
-      } else if (e.key === "r" || e.key === "R") {
-        if (thread && !isSent) {
-          e.preventDefault();
-          handleReject();
-        }
-      } else if (e.key === "Escape") {
-        if (onBack) {
-          e.preventDefault();
-          onBack();
-        }
+      if (e.key === "Escape" && onBack) {
+        e.preventDefault();
+        onBack();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [thread?.id, stagedDraftText, isSent]);
+  }, [onBack]);
 
   if (!thread) {
     return (
@@ -241,7 +244,8 @@ export function InboxConversationView({
     text: string,
     channel: string,
     replyToMessageId?: string,
-    isManual = false
+    isManual = false,
+    attachmentIds?: string[]
   ) => {
     if (!text.trim()) return;
     const outboundChannel = (channel === "gmail" ? "gmail" : "whatsapp") as "whatsapp" | "gmail";
@@ -273,9 +277,9 @@ export function InboxConversationView({
     setReplyingTo(null);
 
     const callback = isManual && onSendManualReply
-      ? () => onSendManualReply(thread.id, text, effectiveReplyId)
+      ? () => onSendManualReply(thread.id, text, effectiveReplyId, attachmentIds)
       : onApproveDraft
-        ? () => onApproveDraft(thread.id, text, outboundChannel, effectiveReplyId)
+        ? () => onApproveDraft(thread.id, text, outboundChannel, effectiveReplyId, attachmentIds)
         : null;
 
     if (callback) {
@@ -317,6 +321,84 @@ export function InboxConversationView({
     } else {
       setExpandedMsgIds(new Set(localMessages.map((m) => m.id)));
     }
+  };
+
+  const renderAttachments = (attachments: ThreadMessage["attachments"]) => {
+    if (!attachments || attachments.length === 0) return null;
+    return (
+      <div className="mt-3 flex flex-col gap-2">
+        {attachments.map((att, attIdx) => {
+          const isImage =
+            att.type?.startsWith("image/") ||
+            att.mimeType?.startsWith("image/") ||
+            att.name?.match(/\.(jpe?g|png|webp|gif)$/i);
+          const fileUrl = att.url?.startsWith("http")
+            ? att.url
+            : `${BACKEND_BASE_URL}${att.url}`;
+          return (
+            <div
+              key={att.id || attIdx}
+              className="rounded-xl overflow-hidden border border-[var(--line)] bg-[var(--pane)] shadow-2xs"
+            >
+              {isImage ? (
+                <a
+                  href={att.driveUrl || fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block group"
+                  title={att.driveUrl ? "Open in Google Drive" : "View Image"}
+                >
+                  <div className="relative aspect-video max-h-48 overflow-hidden bg-black/5 flex items-center justify-center">
+                    <img
+                      src={fileUrl}
+                      alt={att.name || "Attached photo"}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      loading="lazy"
+                    />
+                    {att.driveUrl && (
+                      <div className="absolute top-2 right-2 opacity-90 group-hover:opacity-100 transition-opacity">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-800 bg-white/90 backdrop-blur-xs px-2 py-0.5 rounded shadow-2xs border border-emerald-300">
+                          Google Drive
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="px-3 py-1.5 flex items-center justify-between text-xs text-[var(--ink-2)] bg-[var(--pane)] border-t border-[var(--line)]">
+                    <span className="truncate max-w-[180px] font-medium group-hover:text-[var(--accent-ink)] transition-colors">{att.name}</span>
+                    <span className="text-[11px] text-[var(--ink-3)] font-mono">{att.size}</span>
+                  </div>
+                </a>
+              ) : (
+                <a
+                  href={att.driveUrl || fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2.5 p-2.5 hover:bg-[var(--selected)] transition-colors group"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-200">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-[var(--ink)] truncate group-hover:text-[var(--accent-ink)]">
+                      {att.name}
+                    </p>
+                    <p className="text-[11px] text-[var(--ink-3)] font-mono">
+                      {att.size} · PDF Document
+                    </p>
+                  </div>
+                  {att.driveUrl && (
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      Google Drive
+                    </span>
+                  )}
+                  <ExternalLink className="w-3.5 h-3.5 text-[var(--ink-3)] group-hover:text-[var(--ink)] shrink-0" />
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -758,8 +840,94 @@ export function InboxConversationView({
                 </button>
               )}
 
-              {isOwner ? (
-                // Outgoing bubble (right, vibrant blue on mobile per mockup, crisp white with border on desktop)
+              {msg.channel === "gmail" ? (
+                <article className="rounded-xl border border-[var(--line)] bg-[var(--pane)] shadow-2xs overflow-hidden min-w-0">
+                  <div className="px-4 py-3 border-b border-[var(--line)] bg-[var(--bg)]/45 space-y-1">
+                    <div className="flex items-start justify-between gap-2 min-w-0">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Avatar
+                          name={isOwner ? "Harjot Singh" : (msg.senderName || thread.senderName)}
+                          channel={msg.channel}
+                          size="sm"
+                          className="shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap text-[12.5px]">
+                            <bdi className="font-semibold text-[var(--ink)] truncate">
+                              {isOwner ? "Harjot Singh" : msg.senderName}
+                            </bdi>
+                            {msg.senderContact && msg.senderContact !== msg.senderName && (
+                              <bdi className="text-[11.5px] text-[var(--ink-3)] font-mono break-all">
+                                &lt;{msg.senderContact}&gt;
+                              </bdi>
+                            )}
+                            {isOwner && (
+                              <span className="inline-flex items-center px-1.5 py-0.2 rounded border border-emerald-200 bg-emerald-50 text-[10px] font-semibold text-emerald-700">
+                                Sent
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5 shrink-0 text-[11px] font-mono text-[var(--ink-3)] pt-0.5">
+                        <span>{currentDayLabel} · {displayTime}</span>
+                        {!isOwner && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReplyingTo({
+                                id: msg.id,
+                                text: msg.body?.replace(/^["']|["']$/g, "").slice(0, 80) || "",
+                                sender: msg.senderName || thread.senderName || "Sender",
+                              });
+                            }}
+                            className="inline-flex items-center gap-1 font-sans font-medium text-[var(--ink-3)] hover:text-[var(--accent-ink)] transition-colors cursor-pointer"
+                            title="Reply to this email"
+                          >
+                            <Reply className="w-3.5 h-3.5" />
+                            <span>Reply</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pl-9 text-[11.5px] text-[var(--ink-3)] flex flex-wrap gap-x-4 gap-y-0.5">
+                      {msg.to && msg.to.length > 0 && (
+                        <span className="truncate max-w-full">
+                          <strong className="font-medium text-[var(--ink-2)]">To:</strong> {msg.to.join(", ")}
+                        </span>
+                      )}
+                      {msg.cc && msg.cc.length > 0 && (
+                        <span className="truncate max-w-full">
+                          <strong className="font-medium text-[var(--ink-2)]">Cc:</strong> {msg.cc.join(", ")}
+                        </span>
+                      )}
+                      {msg.subject && (index === 0 || (prevMsg?.subject && msg.subject !== prevMsg.subject)) && (
+                        <span className="truncate max-w-full">
+                          <strong className="font-medium text-[var(--ink-2)]">Subject:</strong> {msg.subject}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="px-4 py-3.5 space-y-2.5 min-w-0">
+                    {msg.replyTo && (
+                      <div className="pl-2.5 py-1 border-l-2 border-[var(--accent)] bg-[var(--selected)]/70 rounded-r text-xs">
+                        <span className="font-semibold text-[11px] text-[var(--accent-ink)] block truncate">
+                          Replying to {msg.replyTo.sender}
+                        </span>
+                        <p className="text-[11.5px] text-[var(--ink-2)] line-clamp-2 italic truncate">
+                          &ldquo;{msg.replyTo.text}&rdquo;
+                        </p>
+                      </div>
+                    )}
+                    <ExpandableMessageBody body={msg.body} bodyHtml={msg.bodyHtml} isOwner={false} />
+                    {renderAttachments(msg.attachments)}
+                    <TranslationToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} cachedDutch={msg.bodyDutch} />
+                  </div>
+                </article>
+              ) : isOwner ? (
+                // Outgoing WhatsApp bubble (right, vibrant blue on mobile per mockup, crisp white with border on desktop)
                 <div className="flex flex-col items-end space-y-1 min-w-0">
                   <div className="bg-[#1a73e8] sm:bg-[var(--pane)] sm:border sm:border-[var(--line)] text-white sm:text-[var(--ink)] rounded-2xl rounded-tr-xs px-3.5 sm:px-4 py-2.5 max-w-[85%] sm:max-w-[75%] min-w-0 overflow-hidden shadow-2xs">
                     {msg.replyTo && (
@@ -773,6 +941,7 @@ export function InboxConversationView({
                       </div>
                     )}
                     <ExpandableMessageBody body={msg.body} bodyHtml={msg.bodyHtml} isOwner={true} />
+                    {renderAttachments(msg.attachments)}
                     <div className="flex items-center justify-end gap-1 mt-1 text-[11px] font-mono text-white/80 sm:text-[var(--ink-3)]">
                       <span>{displayTime}</span>
                       <CheckCheck className="w-3.5 h-3.5 text-sky-200 sm:text-[var(--ink-3)]" />
@@ -782,7 +951,7 @@ export function InboxConversationView({
                   <TranslationToggle text={msg.body} language={msg.language} cachedEnglish={msg.bodyEnglish} cachedDutch={msg.bodyDutch} align="right" />
                 </div>
               ) : (
-                // Incoming bubble (left, --selected fill, no border)
+                // Incoming WhatsApp bubble (left, --selected fill, no border)
                 <div className="flex flex-col items-start space-y-1 group min-w-0">
                   {/* The name is sender-chosen: it truncates on its own line box and never pushes the address away. */}
                   <div className="flex flex-wrap items-baseline gap-x-1.5 px-1 max-w-[85%] sm:max-w-[75%] text-[11px] text-[var(--ink-3)]">
@@ -798,82 +967,7 @@ export function InboxConversationView({
                     )}
                   >
                     <ExpandableMessageBody body={msg.body} bodyHtml={msg.bodyHtml} isOwner={false} />
-
-                    {/* Attachments (Photos & Documents) */}
-                    {msg.attachments && msg.attachments.length > 0 && (
-                      <div className="mt-3 flex flex-col gap-2">
-                        {msg.attachments.map((att: any, attIdx: number) => {
-                          const isImage =
-                            att.type?.startsWith("image/") ||
-                            att.mimeType?.startsWith("image/") ||
-                            att.name?.match(/\.(jpe?g|png|webp|gif)$/i);
-                          const fileUrl = att.url?.startsWith("http")
-                            ? att.url
-                            : `${BACKEND_BASE_URL}${att.url}`;
-                          return (
-                            <div
-                              key={att.id || attIdx}
-                              className="rounded-xl overflow-hidden border border-[var(--line)] bg-[var(--pane)] shadow-2xs"
-                            >
-                              {isImage ? (
-                                <a
-                                  href={att.driveUrl || fileUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="block group"
-                                  title={att.driveUrl ? "Open in Google Drive" : "View Image"}
-                                >
-                                  <div className="relative aspect-video max-h-48 overflow-hidden bg-black/5 flex items-center justify-center">
-                                    <img
-                                      src={fileUrl}
-                                      alt={att.name || "Attached photo"}
-                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                                      loading="lazy"
-                                    />
-                                    {att.driveUrl && (
-                                      <div className="absolute top-2 right-2 opacity-90 group-hover:opacity-100 transition-opacity">
-                                        <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-800 bg-white/90 backdrop-blur-xs px-2 py-0.5 rounded shadow-2xs border border-emerald-300">
-                                          Google Drive
-                                        </span>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="px-3 py-1.5 flex items-center justify-between text-xs text-[var(--ink-2)] bg-[var(--pane)] border-t border-[var(--line)]">
-                                    <span className="truncate max-w-[180px] font-medium group-hover:text-[var(--accent-ink)] transition-colors">{att.name}</span>
-                                    <span className="text-[11px] text-[var(--ink-3)] font-mono">{att.size}</span>
-                                  </div>
-                                </a>
-                              ) : (
-                                <a
-                                  href={att.driveUrl || fileUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-2.5 p-2.5 hover:bg-[var(--selected)] transition-colors group"
-                                >
-                                  <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-200">
-                                    <FileText className="w-4 h-4" />
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-semibold text-[var(--ink)] truncate group-hover:text-[var(--accent-ink)]">
-                                      {att.name}
-                                    </p>
-                                    <p className="text-[11px] text-[var(--ink-3)] font-mono">
-                                      {att.size} · PDF Document
-                                    </p>
-                                  </div>
-                                  {att.driveUrl && (
-                                    <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                                      Google Drive
-                                    </span>
-                                  )}
-                                  <ExternalLink className="w-3.5 h-3.5 text-[var(--ink-3)] group-hover:text-[var(--ink)] shrink-0" />
-                                </a>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    {renderAttachments(msg.attachments)}
                     <div className="flex items-center justify-between gap-3 text-[11px] font-mono text-[var(--ink-3)] mt-1">
                       <button
                         type="button"
@@ -938,6 +1032,8 @@ export function InboxConversationView({
       {/* 3. Sticky Composer (Section 5.2 & 6.2) */}
       <Composer
         threadKey={thread.id}
+        caseId={thread.caseId || thread.id}
+        targetMessageId={thread.messages?.[thread.messages.length - 1]?.id}
         draftText={isSent ? "" : stagedDraftText}
         drafts={
           isSent
@@ -964,12 +1060,12 @@ export function InboxConversationView({
         isReply={Boolean(replyingTo || (thread.messages && thread.messages.length > 0))}
         replyingTo={replyingTo}
         onClearReplyingTo={() => setReplyingTo(null)}
-        onAcceptAndSend={(text, channel, replyId) => {
-          void handleAcceptAndSend(text, channel, replyId, false);
+        onAcceptAndSend={(text, channel, replyId, attachmentIds) => {
+          void handleAcceptAndSend(text, channel, replyId, false, attachmentIds);
         }}
         onReject={handleReject}
-        onSendManualReply={(text, channel, replyId) => {
-          void handleAcceptAndSend(text, channel, replyId, true);
+        onSendManualReply={(text, channel, replyId, attachmentIds) => {
+          void handleAcceptAndSend(text, channel, replyId, true, attachmentIds);
         }}
         onUndo={handleUndo}
         isSent={isSent}

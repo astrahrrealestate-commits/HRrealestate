@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Check, Clock } from "lucide-react";
+import { Check, Clock, MessageSquareText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { formatListTime } from "@/lib/dateUtils";
@@ -18,6 +18,7 @@ export interface ThreadRowItem {
   lastFromUs?: boolean;
   lastAt: Date | string;
   urgent?: boolean;
+  urgency?: "emergency" | "high" | "normal" | "low";
   waitingDays?: number;
   count?: number;
   isRead?: boolean;
@@ -39,6 +40,8 @@ export interface ThreadRowProps {
   onSelect?: () => void;
   onDone?: (e: React.MouseEvent) => void;
   onSnooze?: (e: React.MouseEvent) => void;
+  onAskAstra?: (e: React.MouseEvent) => void;
+  actionLabel?: string;
   className?: string;
 }
 
@@ -59,6 +62,8 @@ export function ThreadRow({
   onSelect,
   onDone,
   onSnooze,
+  onAskAstra,
+  actionLabel,
   className,
 }: ThreadRowProps) {
   const isUnread = t.isRead === false || (t.isRead === undefined && t.status === "needs_you");
@@ -66,8 +71,9 @@ export function ThreadRow({
   const categoryLabel = formatCategoryLabel(t.category);
   const showCategory = Boolean(categoryLabel && categoryLabel.toLowerCase() !== t.roleLabel?.toLowerCase());
   const dateObj = t.lastAt instanceof Date ? t.lastAt : new Date(t.lastAt);
-  const formattedTime = formatListTime(t.lastAt || dateObj);
-  const isoTime = isNaN(dateObj.getTime()) ? "" : dateObj.toISOString();
+  const validDate = !isNaN(dateObj.getTime());
+  const formattedTime = validDate ? formatListTime(t.lastAt || dateObj) : "";
+  const isoTime = validDate ? dateObj.toISOString() : "";
 
   return (
     <div
@@ -147,6 +153,9 @@ export function ThreadRow({
         </span>
 
         <span className={cn("block truncate text-[12.5px] leading-normal", isUnread ? "text-[var(--ink-2)] font-medium" : "text-[var(--ink-3)]")}>
+          {t.hasDraft && (
+            <span className="text-[var(--accent-ink)] font-semibold mr-1">✦ Draft ready ·</span>
+          )}
           {t.lastFromUs && "You: "}
           {t.snippet}
         </span>
@@ -169,30 +178,56 @@ export function ThreadRow({
 
       {/* Time & urgency / waiting indicator */}
       <span className="flex flex-col items-end gap-1 whitespace-nowrap text-xs flex-shrink-0 pt-0.5">
-        <time
-          suppressHydrationWarning
-          className={cn(
-            "font-mono text-[12px]",
-            isUnread ? "font-bold text-[var(--ink)]" : "font-medium text-[var(--ink-3)]"
-          )}
-          title={isoTime || formattedTime}
-        >
-          {formattedTime}
-        </time>
+        {formattedTime ? (
+          <time
+            suppressHydrationWarning
+            className={cn(
+              "font-mono text-[12px]",
+              isUnread ? "font-bold text-[var(--ink)]" : "font-medium text-[var(--ink-3)]"
+            )}
+            title={isoTime || formattedTime}
+          >
+            {formattedTime}
+          </time>
+        ) : null}
 
         <div className="flex items-center gap-1.5">
-          {/* Urgency label (orange text, no fill) */}
-          {t.urgent && (
+          {/* Emergency vs Urgent label */}
+          {t.urgency === "emergency" ? (
+            <span className="font-bold text-[#E14D12] text-[11px] uppercase tracking-wide">
+              Emergency
+            </span>
+          ) : (t.urgent || t.urgency === "high") ? (
             <span className="font-semibold text-[var(--accent-ink)] text-xs">
               Urgent
             </span>
-          )}
+          ) : null}
 
-          {/* Waiting days indicator (orange text when >= 1 day) */}
-          {!t.urgent && (t.waitingDays ?? 0) >= 1 && (
+          {/* Waiting days indicator */}
+          {t.urgency !== "emergency" && !t.urgent && t.urgency !== "high" && (t.waitingDays ?? 0) >= 1 && (
             <span className="text-[var(--accent-ink)] text-xs font-medium">
               {t.waitingDays}d waiting
             </span>
+          )}
+
+          {actionLabel && (
+            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--bg)] text-[11px] font-semibold text-[var(--ink)]">
+              {actionLabel}
+            </span>
+          )}
+
+          {onAskAstra && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAskAstra(e);
+              }}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] text-[11px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+            >
+              <MessageSquareText className="w-3 h-3" />
+              <span>Ask Astra</span>
+            </button>
           )}
 
           {/* Quick hover actions: Done & Snooze (Section 5.2) */}

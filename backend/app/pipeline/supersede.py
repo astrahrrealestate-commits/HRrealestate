@@ -59,6 +59,7 @@ def supersede_draft(
     urgency: Urgency,
     now: datetime,
     persona: Persona | None = None,
+    commitments: list[str] | None = None,
 ) -> NewRevision | None:
     """Exactly once: the approval expires and the action gets a new version and approval (`approvals.revise`).
     `editor` is the caller's deterministic key: a retry returns the revision it wrote. None when the draft is no
@@ -71,5 +72,13 @@ def supersede_draft(
     approval, action = live
     approval.status = ApprovalStatus.expired
     return approvals.revise(
-        session, company_id, action, variants, editor=editor, urgency=urgency, now=now, persona=persona
+        session,
+        company_id,
+        action,
+        variants,
+        editor=editor,
+        urgency=urgency,
+        now=now,
+        persona=persona,
+        commitments=commitments,
     )

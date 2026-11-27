@@ -105,7 +105,7 @@ def test_propose_uses_v6_with_the_dossier_and_records_its_messages(
     assert "Eerder: de kraan druppelt." in seen[0]
     with Session(migrated_engine) as s:
         call = s.scalars(select(ModelCall).where(ModelCall.company_id == cid, ModelCall.purpose == "proposer")).one()
-    assert call.prompt_version == "v6"
+    assert call.prompt_version == "v10"
     assert mid in call.message_ids
     assert len(call.message_ids) == 2
 
@@ -114,7 +114,7 @@ def test_owner_redraft_uses_v6_with_the_dossier(migrated_engine: Engine, committ
     mid = _mail(migrated_engine, committed_company.id)
     loaded = load_message(migrated_engine, mid)
     assert loaded is not None
-    assert proposer_spec(loaded.ctx).prompt.key == "proposer/v6"
+    assert proposer_spec(loaded.ctx).prompt.key == "proposer/v10"
     assert any("Eerder: de kraan druppelt." in block for block in loaded.ctx.dossier)
 
 
@@ -169,11 +169,12 @@ def test_generic_variants_are_dropped_when_two_good_ones_remain(
     migrated_engine: Engine, committed_company: Company, settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cid = committed_company.id
-    prompts = _answers(monkeypatch, [GOOD, GENERIC, GOOD + " Tot donderdag!"])
+    prompts = _answers(monkeypatch, [GOOD, GENERIC], [GOOD, GOOD + " Tot donderdag!"])
     propose_for_message(migrated_engine, settings, _mail(migrated_engine, cid))
-    assert len(prompts) == 1
+    assert len(prompts) == 2
     [reply] = [a for a in _actions(migrated_engine, cid) if a.type is ActionType.reply_draft]
     assert GENERIC not in reply.payload["body_variants"]
+    assert len(reply.payload["body_variants"]) == 2
 
 
 def test_commitments_are_stored_on_the_payload(
@@ -201,7 +202,7 @@ def test_the_fake_proposer_writes_drafts_that_pass_the_standard(
     cid = committed_company.id
     propose_for_message(migrated_engine, settings, _mail(migrated_engine, cid))
     [reply] = [a for a in _actions(migrated_engine, cid) if a.type is ActionType.reply_draft]
-    assert len(reply.payload["body_variants"]) >= 2
+    assert len(reply.payload["body_variants"]) == 2
 
 
 def test_inbox_without_a_proposal_offers_no_draft_text_and_no_confidence() -> None:

@@ -8,6 +8,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -15,7 +16,15 @@ from sqlalchemy.orm import Session
 from app.contracts import Category, Urgency
 from app.contracts.categories import CATEGORY_LABELS, SHOWN_CATEGORIES
 from app.contracts.common import Contract
-from app.pipeline.next_actions_sources import ActionKind, ActionViewer, NextAction, RankedItem, all_pipeline_items
+from app.pipeline.next_actions_sources import (
+    ActionKind,
+    ActionViewer,
+    NextAction,
+    RankedItem,
+    all_pipeline_items,
+    enrich_actions,
+    waiting_split,
+)
 
 __all__ = [
     "ActionViewer",
@@ -25,6 +34,7 @@ __all__ = [
     "category_brief",
     "category_summaries",
     "next_actions",
+    "waiting_split",
 ]
 
 _URGENCY_ORDER = {Urgency.emergency: 0, Urgency.high: 1, Urgency.normal: 2, Urgency.low: 3}
@@ -55,6 +65,7 @@ class CategorySummary(Contract):
     label: str
     open_actions: int
     urgent: int
+    emergency: int = 0
 
 
 @dataclass(frozen=True)
@@ -125,6 +136,9 @@ def _gather(
     return sorted(items, key=_rank_key)
 
 
+_THREAD_KINDS: frozenset[ActionKind] = frozenset({"approve_draft", "reply_needed", "overdue_wait"})
+
+
 def next_actions(
     session: Session,
     company_id: UUID,
@@ -133,18 +147,32 @@ def next_actions(
     limit: int = 15,
     *,
     brixx_items: Sequence[BrixxAttentionLike] = (),
+    urgency_filter: Literal["all", "emergency", "high"] = "all",
     now: datetime | None = None,
 ) -> list[NextAction]:
-    """Ranked next actions for one of the six categories; empty list for `spam`."""
+    """Ranked next actions for one of the six categories; empty list for `spam`.
+
+    Deduplicates overlapping conversation-turn actions (`approve_draft`, `reply_needed`, `overdue_wait`) per `case_id`
+    while keeping distinct artifact reviews (`quote_review`, `document_review`)."""
     if category not in SHOWN_CATEGORIES:
         return []
     ref = now or datetime.now(UTC)
-    ranked = [
-        item.action
-        for item in _gather(session, company_id, viewer, brixx_items, ref)
-        if item.action.category is category
-    ]
-    return ranked[: max(1, limit)]
+    ranked: list[NextAction] = []
+    seen_cases: set[UUID] = set()
+    for item in _gather(session, company_id, viewer, brixx_items, ref):
+        act = item.action
+        if act.category is not category:
+            continue
+        if urgency_filter == "emergency" and act.urgency is not Urgency.emergency:
+            continue
+        if urgency_filter == "high" and act.urgency is not Urgency.high:
+            continue
+        if act.case_id is not None and act.kind in _THREAD_KINDS:
+            if act.case_id in seen_cases:
+                continue
+            seen_cases.add(act.case_id)
+        ranked.append(act)
+    return enrich_actions(session, company_id, viewer, ranked[: max(1, limit)], now=ref)
 
 
 def category_summaries(
@@ -155,18 +183,34 @@ def category_summaries(
     brixx_items: Sequence[BrixxAttentionLike] = (),
     now: datetime | None = None,
 ) -> list[CategorySummary]:
-    """Counts per category in display order for the Today category tabs."""
+    """Counts per category in display order for the Today category tabs (thread actions deduped by case_id)."""
     ref = now or datetime.now(UTC)
     items = _gather(session, company_id, viewer, brixx_items, ref)
     total: Counter[Category] = Counter()
     urgent: Counter[Category] = Counter()
+    emergency: Counter[Category] = Counter()
+    seen_cases: set[tuple[Category, UUID]] = set()
     for item in items:
         cat = item.action.category
+        cid = item.action.case_id
+        if cid is not None and item.action.kind in _THREAD_KINDS:
+            key = (cat, cid)
+            if key in seen_cases:
+                continue
+            seen_cases.add(key)
         total[cat] += 1
+        if item.action.urgency is Urgency.emergency:
+            emergency[cat] += 1
         if item.action.urgency in (Urgency.emergency, Urgency.high):
             urgent[cat] += 1
     return [
-        CategorySummary(category=cat, label=CATEGORY_LABELS[cat], open_actions=total[cat], urgent=urgent[cat])
+        CategorySummary(
+            category=cat,
+            label=CATEGORY_LABELS[cat],
+            open_actions=total[cat],
+            urgent=urgent[cat],
+            emergency=emergency[cat],
+        )
         for cat in SHOWN_CATEGORIES
     ]
 

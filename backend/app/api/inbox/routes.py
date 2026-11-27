@@ -5,6 +5,8 @@ audience filtering, and 1-click owner approval execution to the Next.js frontend
 """
 
 import contextlib
+import hashlib
+import re
 import threading
 import urllib.parse
 from collections import defaultdict
@@ -15,7 +17,7 @@ from typing import Annotated, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
@@ -48,13 +50,21 @@ from app.channels.gmail.html_sanitize import (
 )
 from app.context.sender_label import UNASSIGNED_UNIT, resolve_sender_label, role_hint_of, unit_display
 from app.context.shown_sender import sender_person_ids, shown_sender_name
-from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction, Urgency
+from app.contracts import ActionType, ButtonChoice, CaseState, Category, Channel, Direction, OutboundMode, Urgency
 from app.core.errors import NotFoundError
 from app.core.ids import case_ref, new_id
 from app.core.language import detect_language
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind, PersonKind, PipelineStatus, RawEventStatus
+from app.db.enums import (
+    ActionStatus,
+    ApprovalStatus,
+    CaseEventKind,
+    PersonKind,
+    PipelineStatus,
+    RawEventStatus,
+    SendStatus,
+)
 from app.db.models import (
     ActionRevision,
     ActionRow,
@@ -79,6 +89,7 @@ from app.ingestion.gmail_sync import sync_mailbox
 from app.ingestion.process import IngestDeps, company_mailboxes, owner_addresses
 from app.pipeline import dashboard_decisions
 from app.pipeline.dashboard_decisions import is_suspicious
+from app.pipeline.enhance import enhance_draft
 from app.storage.ports import ObjectStorage
 
 router = APIRouter(
@@ -96,6 +107,7 @@ class ApprovalDecideRequest(BaseModel):
     reply_to_message_id: str | None = Field(
         default=None, description="Optional message ID to quote in contextual reply"
     )
+    attachment_ids: list[str] = Field(default_factory=list, description="Optional uploaded attachment UUIDs")
 
 
 # Rich default seeds so the frontend displays complete live data even before first email webhook arrives
@@ -202,6 +214,29 @@ def _offered_reply(actions: list[ActionRow], messages: list[MessageRow], shown: 
     return action
 
 
+_VARIANT_TAG_RE = re.compile(r"\s*\((?:Variant|Draft)\s+([12])\)\.?\s*$", re.IGNORECASE)
+
+
+def _commitments_for_variant(raw_commitments: list[str], variant_idx: int) -> list[str]:
+    """Filter commitments tagged for a specific variant (1 or 2) and strip the `(Variant N)` suffix."""
+    out: list[str] = []
+    for item in raw_commitments:
+        text = item.strip()
+        if not text:
+            continue
+        match = _VARIANT_TAG_RE.search(text)
+        if match is not None:
+            if int(match.group(1)) != variant_idx:
+                continue
+            cleaned = text[: match.start()].rstrip(" .")
+            if text.endswith(".") and not cleaned.endswith("."):
+                cleaned += "."
+            text = cleaned
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
 def _build_drafts(
     reply_action: ActionRow | None, sender_name: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None]:
@@ -216,14 +251,15 @@ def _build_drafts(
                 "name": reply_action.persona_name,
                 "version": reply_action.persona_version,
             }
-        variants = reply_action.payload.get("body_variants") or []
-        commitments = [str(c) for c in reply_action.payload.get("commitments") or []]
+        variants = (reply_action.payload.get("body_variants") or [])[:2]
+        raw_commitments = [str(c) for c in reply_action.payload.get("commitments") or []]
         if not variants and reply_action.payload.get("text"):
             variants = [reply_action.payload["text"]]
         elif not variants and reply_action.payload.get("body"):
             variants = [reply_action.payload["body"]]
 
         for idx, text in enumerate(variants, start=1):
+            commitments = _commitments_for_variant(raw_commitments, idx)
             gmail_drafts.append(
                 {
                     "id": f"gd{idx}",
@@ -478,6 +514,10 @@ def _assemble_thread(
                 raw_html, clean_body = _cached_clean_and_html(raw_text, True)
         else:
             _, clean_body = _cached_clean_and_html(raw_text, False)
+        to_list = m_meta.get("to") if isinstance(m_meta.get("to"), list) else []
+        if not to_list and m_is_incoming and isinstance(m_meta.get("mailbox"), str):
+            to_list = [m_meta["mailbox"]]
+        cc_list = m_meta.get("cc") if isinstance(m_meta.get("cc"), list) else []
         msgs_data.append(
             {
                 "id": str(m.id),
@@ -493,58 +533,79 @@ def _assemble_thread(
                 "channel": m.channel.value if m.channel else "gmail",
                 "attachments": attachments_map.get(m.id, []),
                 "subject": m_meta.get("subject", "Communication"),
+                "to": to_list,
+                "cc": cc_list,
             }
         )
 
-    actions_by_id = {a.id: a for a in actions}
-    for act in actions:
-        for s in details.sends_by_action.get(act.id, ()):
-            s_dt = s.attempted_at or now_dt
-            if s_dt.tzinfo is None:
-                s_dt = s_dt.replace(tzinfo=UTC)
-            s_time_fmt = when_label(s_dt, now_dt, company_tz)
-            act_row = actions_by_id.get(s.action_id) if s.action_id is not None else act
-            act_payload = act_row.payload if act_row and isinstance(act_row.payload, dict) else {}
+    is_send_mode = msg_batch.company is not None and msg_batch.company.outbound_mode is OutboundMode.send
+    if is_send_mode:
+        for act in actions:
+            if act.type is not ActionType.reply_draft:
+                continue
+            act_approvals = details.approvals_by_action.get(act.id, ())
+            approved_ap = next((ap for ap in act_approvals if ap.status == ApprovalStatus.approved), None)
+            choice = approved_ap.choice if approved_ap and approved_ap.choice else ButtonChoice.d1
+            choice_idx = {ButtonChoice.d2: 1, ButtonChoice.d3: 2}.get(choice, 0)
+            act_payload = act.payload if isinstance(act.payload, dict) else {}
             variants = act_payload.get("body_variants") or []
-            body_txt = variants[0] if variants else "Replied to tenant."
-            s_iso = s_dt.isoformat()
-            preceding_incoming = [m for m in msgs_data if m.get("isIncoming") and (m.get("sentAt") or "") <= s_iso]
-            reply_to_info = None
-            if preceding_incoming:
-                target_in = preceding_incoming[-1]
-                clean_in_text = (target_in.get("body") or "").strip().strip('"').strip("'")
-                reply_to_info = {
-                    "id": str(target_in.get("id")),
-                    "sender": target_in.get("senderName") or "Tenant",
-                    "text": clean_in_text[:120],
-                }
-            elif act_payload.get("reply_to"):
-                reply_to_info = act_payload.get("reply_to")
-            msgs_data.append(
-                {
-                    "id": str(s.id),
-                    "sender": "owner",
-                    "senderName": "Harjot Singh",
-                    "senderContact": "+31 20 000 0001",
-                    "sentAt": s_iso,
-                    "timeFormatted": s_time_fmt,
-                    "content": body_txt,
-                    "body": body_txt,
-                    "isIncoming": False,
-                    "channel": s.channel.value if s.channel else "whatsapp",
-                    "subject": "Reply",
-                    "replyTo": reply_to_info,
-                }
-            )
+            body_txt = variants[min(choice_idx, len(variants) - 1)] if variants else "Replied to tenant."
+            for s in details.sends_by_action.get(act.id, ()):
+                if s.status is not SendStatus.sent or s.channel is Channel.dashboard:
+                    continue
+                if any(
+                    not m.get("isIncoming") and (m.get("body") or "").strip() == body_txt.strip() for m in msgs_data
+                ):
+                    continue
+                s_dt = s.attempted_at or now_dt
+                if s_dt.tzinfo is None:
+                    s_dt = s_dt.replace(tzinfo=UTC)
+                s_time_fmt = when_label(s_dt, now_dt, company_tz)
+                s_iso = s_dt.isoformat()
+                preceding_incoming = [m for m in msgs_data if m.get("isIncoming") and (m.get("sentAt") or "") <= s_iso]
+                reply_to_info = None
+                if preceding_incoming:
+                    target_in = preceding_incoming[-1]
+                    clean_in_text = (target_in.get("body") or "").strip().strip('"').strip("'")
+                    reply_to_info = {
+                        "id": str(target_in.get("id")),
+                        "sender": target_in.get("senderName") or "Tenant",
+                        "text": clean_in_text[:120],
+                    }
+                elif act_payload.get("reply_to"):
+                    reply_to_info = act_payload.get("reply_to")
+                msgs_data.append(
+                    {
+                        "id": str(s.id),
+                        "sender": "owner",
+                        "senderName": "Harjot Singh",
+                        "senderContact": owner_email if s.channel is Channel.gmail else "+31 20 000 0001",
+                        "sentAt": s_iso,
+                        "timeFormatted": s_time_fmt,
+                        "content": body_txt,
+                        "body": body_txt,
+                        "isIncoming": False,
+                        "channel": s.channel.value if s.channel else "whatsapp",
+                        "subject": act_payload.get("subject") or "Reply",
+                        "to": [s.target] if s.target else [],
+                        "cc": [],
+                        "replyTo": reply_to_info,
+                    }
+                )
 
     msgs_data.sort(key=lambda x: x.get("sentAt", ""))
-    has_owner_reply = any(m.get("sender") == "owner" for m in msgs_data)
+    last_msg_is_owner = bool(msgs_data) and msgs_data[-1].get("sender") == "owner"
+    has_pending_reply = (
+        approval is not None and approval.status == ApprovalStatus.pending and bool(gmail_drafts or whatsapp_drafts)
+    )
     has_pending_action = any(a.status in (ActionStatus.pending_approval, ActionStatus.exception) for a in actions)
     requires_reply = und_body.get("requires_reply") if isinstance(und_body, dict) else None
     status_str = "needs_approval"
     if case.state in (CaseState.closed, CaseState.resolved):
         status_str = "closed"
-    elif (approval and approval.status == ApprovalStatus.approved) or has_owner_reply:
+    elif has_pending_reply and not last_msg_is_owner:
+        status_str = "needs_approval"
+    elif (approval and approval.status == ApprovalStatus.approved) or last_msg_is_owner:
         status_str = "approved"
     elif approval and approval.status == ApprovalStatus.rejected:
         status_str = "rejected"
@@ -554,12 +615,12 @@ def _assemble_thread(
     last_read = getattr(case, "last_read_at", None)
     if last_read is not None and last_read.tzinfo is None:
         last_read = last_read.replace(tzinfo=UTC)
-    is_read = bool(has_owner_reply or (last_read is not None and last_read >= sent_dt) or status_str == "closed")
+    is_read = bool(last_msg_is_owner or (last_read is not None and last_read >= sent_dt) or status_str == "closed")
     snoozed_until = getattr(case, "snoozed_until", None)
     subject_str = (
         prep.latest_msg.meta.get("subject") if isinstance(prep.latest_msg.meta, dict) else None
     ) or " - ".join(filter(None, (case.category.value.title(), unit_label)))
-    hide_drafts = status_str == "approved" or (bool(msgs_data) and msgs_data[-1].get("sender") == "owner")
+    hide_drafts = status_str == "approved" or last_msg_is_owner
     ticket_code = f"BRIXX-{case.brixx_ref}" if case.brixx_ref else f"#{case_ref(case.id)}"
 
     latest_raw_text = prep.latest_msg.text or ""
@@ -994,11 +1055,109 @@ def _quoted_inbound(
     )
 
 
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_WA_IMAGE_LIMIT = 16 * 1024 * 1024
+
+
+def _owned_attachment_ids(session: Session, company_id: UUID, raw_ids: list[str]) -> list[str]:
+    parsed: list[UUID] = []
+    for raw in raw_ids:
+        try:
+            parsed.append(UUID(str(raw)))
+        except ValueError:
+            continue
+    if not parsed:
+        return []
+    found = set(
+        session.scalars(
+            select(AttachmentRow.id).where(AttachmentRow.company_id == company_id, AttachmentRow.id.in_(parsed))
+        ).all()
+    )
+    return [str(aid) for aid in parsed if aid in found]
+
+
+@router.post(
+    "/threads/{case_id}/attachments",
+    summary="Upload an Attachment for Outbound Reply + Drive/RAG Filing",
+    description=(
+        "Stores an attachment once in ObjectStorage, links it to the thread, and enqueues background classification, "
+        "RAG chunk indexing, and Google Drive upload into `EstateOS/<unit>/<kind>/<year>/`."
+    ),
+)
+async def upload_thread_attachment(
+    case_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    storage: Annotated[ObjectStorage, Depends(get_storage)],
+    client: Annotated[WorkflowClient, Depends(get_workflow_client)],
+    principal: Annotated[Principal, Depends(require_session)],
+    file: Annotated[UploadFile, File()],
+) -> dict[str, Any]:
+    try:
+        c_uuid = UUID(case_id.replace("case-", ""))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Thread not found") from None
+
+    raw = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if not raw:
+        raise HTTPException(status_code=422, detail="File is empty.")
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds 25 MB limit.")
+
+    company_id = principal.company_id
+    raw_name = (file.filename or "attachment").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._") or "attachment"
+    mime_type = (file.content_type or "application/octet-stream").split(";", 1)[0].strip().lower()
+    att_id = new_id()
+    s3_key = f"attachments/{company_id}/{c_uuid}/{att_id}/{safe_name[:120]}"
+    sha256 = hashlib.sha256(raw).hexdigest()
+
+    with Session(engine) as session, session.begin():
+        case = session.scalar(select(Case).where(Case.id == c_uuid, Case.company_id == company_id))
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        msg_id = session.scalar(
+            select(CaseLink.message_id)
+            .where(CaseLink.company_id == company_id, CaseLink.case_id == c_uuid)
+            .order_by(CaseLink.created_at.desc())
+            .limit(1)
+        )
+        if msg_id is None:
+            raise HTTPException(status_code=422, detail="Thread has no message to attach files to yet.")
+        storage.put(s3_key, raw, mime_type)
+        session.add(
+            AttachmentRow(
+                id=att_id,
+                company_id=company_id,
+                message_id=msg_id,
+                s3_key=s3_key,
+                mime_type=mime_type[:255],
+                filename=raw_name[:255],
+                size_bytes=len(raw),
+                sha256=sha256,
+            )
+        )
+
+    enqueue.enqueue_document(client, company_id, att_id)
+    is_image = mime_type.startswith("image/")
+    whatsapp_allowed = (len(raw) <= _WA_IMAGE_LIMIT) if is_image else True
+    return {
+        "ok": True,
+        "attachmentId": str(att_id),
+        "filename": raw_name[:255],
+        "mimeType": mime_type,
+        "sizeBytes": len(raw),
+        "gmailAllowed": True,
+        "whatsappAllowed": whatsapp_allowed,
+        "driveQueued": True,
+    }
+
+
 class ThreadReplyRequest(BaseModel):
     body: str = Field(min_length=1, max_length=20000)
     channel: str | None = None
     reply_to_message_id: str | None = None
     confirm_suspicious: bool = False
+    attachment_ids: list[str] = Field(default_factory=list)
 
 
 @router.post(
@@ -1058,10 +1217,12 @@ def send_thread_reply(
         ):
             raise HTTPException(status_code=409, detail="confirm_suspicious_required")
         quoted_id = _quoted_inbound(session, company_id, c_uuid, chosen_channel, req.reply_to_message_id)
+        owned_atts = _owned_attachment_ids(session, company_id, req.attachment_ids)
         payload: dict[str, Any] = {
             "kind": "reply_draft",
             "channel": chosen_channel.value,
             "body_variants": [body_text],
+            **({"attachment_ids": owned_atts} if owned_atts else {}),
         }
         action = ActionRow(
             company_id=company_id,
@@ -1112,6 +1273,62 @@ def send_thread_reply(
     }
 
 
+class EnhanceDraftRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=500, description="How to improve or redraft the reply")
+    current_text: str = Field(default="", max_length=8000, description="Current text in the composer")
+    message_id: str | None = Field(default=None, description="Optional target message UUID on this thread")
+
+
+@router.post(
+    "/threads/{case_id}/enhance",
+    summary="Enhance or Redraft Reply with AI",
+    description=(
+        "Plans any missing RAG/mail/web/DB lookups from the owner's instruction, enriches the message dossier, "
+        "runs the quality proposer, and updates or creates the pending draft approval."
+    ),
+)
+def enhance_thread_draft(
+    case_id: str,
+    req: EnhanceDraftRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> dict[str, Any]:
+    """Instruction-aware redraft for Inbox Gmail and WhatsApp composers."""
+    try:
+        c_uuid = UUID(case_id.removeprefix("case-"))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Thread not found") from None
+    m_uuid: UUID | None = None
+    if req.message_id:
+        try:
+            m_uuid = UUID(req.message_id.removeprefix("msg-"))
+        except ValueError:
+            m_uuid = None
+    res = enhance_draft(
+        engine,
+        get_settings(),
+        principal.company_id,
+        c_uuid,
+        instruction=req.instruction,
+        current_text=req.current_text,
+        message_id=m_uuid,
+    )
+    if not res.ok:
+        raise HTTPException(status_code=422, detail=res.problem or "Could not enhance draft.")
+    raw_commitments = list(res.commitments)
+    per_variant = [_commitments_for_variant(raw_commitments, idx) for idx in (1, 2)]
+    return {
+        "ok": True,
+        "draftText": res.variants[0] if res.variants else "",
+        "variants": list(res.variants),
+        "commitments": per_variant[0],
+        "commitmentsByVariant": per_variant,
+        "approvalId": str(res.approval_id) if res.approval_id else None,
+        "draftVersion": res.draft_version,
+        "sourcesUsed": list(res.sources_used),
+    }
+
+
 @router.post(
     "/approvals/{approval_id}/decide",
     dependencies=[Depends(decide_limit)],
@@ -1142,6 +1359,9 @@ def decide_approval(
             early = inbox_decide.guard(session, target, now)
             if early is not None:
                 return early
+            owned_atts = _owned_attachment_ids(session, principal.company_id, req.attachment_ids)
+            if owned_atts and target.action is not None:
+                target.action.payload = {**target.action.payload, "attachment_ids": owned_atts}
             outcome = inbox_decide.decide(session, target, choice, req.edited_text, now)
             approved = outcome.decision is None or outcome.decision.kind == "execute"
             if target.action is not None and approved:

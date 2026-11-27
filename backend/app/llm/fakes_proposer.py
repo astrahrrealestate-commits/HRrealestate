@@ -114,7 +114,7 @@ def fake_proposer(prompt: str) -> dict[str, object]:
         variants, rationale = _reply(prompt), "Ask what is needed to act"
         if cited := _cited_clause(prompt):
             title, sentence = cited
-            variants.append(f"Geachte heer/mevrouw,\n\nVolgens {title} geldt: {sentence}{_SIGN}")
+            variants[0] = f"Geachte heer/mevrouw,\n\nVolgens {title} geldt: {sentence}{_SIGN}"
             rationale = f"Answer from {title}"
     payload: dict[str, object] = {
         "channel": channel, "subject": reply_subject, "body_variants": variants, "commitments": [],

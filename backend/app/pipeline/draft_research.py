@@ -41,11 +41,60 @@ PAGES_PER_SEARCH = 3
 REFERENCES_PER_QUESTION = 2
 DEADLINE_SEC = 60.0
 SEARCH_UNTIL_SEC = 35.0  # searches stop here: the model needs the rest
-LEGAL_DOMAINS = ("wetten.overheid.nl", "rechtspraak.nl", "roz.nl", "rijksoverheid.nl", "huurcommissie.nl")
+LEGAL_DOMAINS = (
+    "wetten.overheid.nl",
+    "rechtspraak.nl",
+    "roz.nl",
+    "rijksoverheid.nl",
+    "huurcommissie.nl",
+    "iplo.nl",
+    "amsterdam.nl",
+    "juridischloket.nl",
+    "wooninfo.nl",
+    "kvk.nl",
+    "notaris.nl",
+)
+MARKET_DOMAINS = (
+    "funda.nl",
+    "fundainbusiness.nl",
+    "pararius.nl",
+    "nvm.nl",
+    "cbs.nl",
+    "ec.europa.eu",
+)
+FINANCE_DOMAINS = (
+    "belastingdienst.nl",
+    "rvo.nl",
+    "dnb.nl",
+    "verenigingeigenhuis.nl",
+    "cbs.nl",
+    "rijksoverheid.nl",
+)
+MAINTENANCE_DOMAINS = (
+    "hornbach.nl",
+    "warmteservice.nl",
+    "werkspot.nl",
+    "milieucentraal.nl",
+    "technieknederland.nl",
+)
 REGION = "NL"
 _LEGAL = re.compile(
     r"\b(roz|wet|wetboek|bw|artikel|art\.|huurrecht|huurcommissie|opzeg\w*|indexer\w*|huurverhoging|rechtspraak|"
-    r"law|legal|statute|eviction|ontbinding|algemene bepalingen)\b",
+    r"law|legal|statute|eviction|ontbinding|algemene bepalingen|kleine herstellingen|gebrek\w*|onderhoudsplicht|"
+    r"borg|waarborgsom|deposit|overlast|erfpacht|opkoopbescherming|notaris|servicekosten|wws|woningwaardering|"
+    r"puntentelling|punten|betaalbare huur|middenhuur|sociale huur|vrije sector|onderhuur|medehuur|"
+    r"diplomatenclausule|aanzeg\w*|ontruim\w*|huurvermindering|goed verhuurderschap|vve|splitsings\w*|splitsen|"
+    r"omgevingsvergunning|omgevingswet|energielabel|leegstand\w*|toestemming|bedenktijd)\b",
+    re.I,
+)
+_MARKET = re.compile(
+    r"\b(funda|pararius|nvm|huurprijs|markthuur|koopprijs|vraagprijs|vierkante meter|per m2|m2|taxatie|waardebepaling|"
+    r"cpi|pbk|woningmarkt|market rent|asking price)\b",
+    re.I,
+)
+_FINANCE = re.compile(
+    r"\b(belasting|btw|vat|box\s*3|leegwaarderatio|overdrachtsbelasting|ozb|isde|svve|subsidie|hypotheek|rente|"
+    r"rvo|dnb|tax|subsidy|mortgage)\b",
     re.I,
 )
 Searcher = Callable[[Sequence[str]], SearchClient]  # allowed domains (empty = any) -> a search client
@@ -61,6 +110,23 @@ def _squash(text: str) -> str:
 
 def is_legal(question: str, category: Category) -> bool:
     return category is Category.legal or _LEGAL.search(question) is not None
+
+
+def domains_for(question: str, category: Category) -> tuple[str, ...]:
+    """Trusted Dutch/EU domains for Gemini Search grounding by question intent and category."""
+    if is_legal(question, category):
+        return LEGAL_DOMAINS
+    if _MARKET.search(question) is not None:
+        return MARKET_DOMAINS
+    if _FINANCE.search(question) is not None or category is Category.finance:
+        return FINANCE_DOMAINS
+    if category is Category.maintenance:
+        return MAINTENANCE_DOMAINS
+    if category is Category.new_projects:
+        return (*MARKET_DOMAINS, "rvo.nl", "amsterdam.nl")
+    if category is Category.business:
+        return MARKET_DOMAINS
+    return ()
 
 
 def stored_findings(research: dict[str, object] | None) -> tuple[Finding, ...]:
@@ -97,14 +163,12 @@ class _Budget:
         return DEADLINE_SEC - (self.clock() - self.started)
 
 
-def _search(searcher: Searcher, query: str, legal: bool, n: int, budget: _Budget) -> list[ResearchSource]:
+def _search(searcher: Searcher, query: str, domains: Sequence[str], n: int, budget: _Budget) -> list[ResearchSource]:
     if not budget.may_search():
         return []
     budget.searches += 1
     try:
-        hits = searcher(LEGAL_DOMAINS if legal else ()).search(
-            search_query(query), region=REGION, limit=PAGES_PER_SEARCH
-        )
+        hits = searcher(domains).search(search_query(query), region=REGION, limit=PAGES_PER_SEARCH)
     except Exception as exc:  # one search that fails (provider, budget, network) never stops the draft
         log.warning("draft_research.search_failed", reason=type(exc).__name__)
         budget.failed = True  # nothing found is then not an answer: a later run searches again
@@ -136,10 +200,10 @@ def _gather(
 ) -> list[ResearchSource]:  # fmt: skip
     sources = list(references)
     for n, question in enumerate(questions, start=1):
-        sources += _search(searcher, question, is_legal(question, category), n, budget)
+        sources += _search(searcher, question, domains_for(question, category), n, budget)
     for n, question in enumerate(questions, start=1):  # a second try, with what is left, for questions with nothing
         if not any(s.question == n for s in sources):
-            sources += _search(searcher, f"{question} Nederland", is_legal(question, category), n, budget)
+            sources += _search(searcher, f"{question} Nederland", domains_for(question, category), n, budget)
     return sources
 
 
@@ -204,6 +268,44 @@ def _store(engine: Engine, company_id: UUID, row_id: UUID, findings: list[Findin
             row.research = research
 
 
+def _run_questions(
+    engine: Engine,
+    settings: Settings,
+    company_id: UUID,
+    message_id: UUID,
+    questions: Sequence[str],
+    category: Category,
+    searcher: Searcher | None,
+    clock: Callable[[], float],
+) -> tuple[list[Finding], list[str], bool, int]:
+    cleaned = [q for q in (strip_risky(q).strip() for q in questions[:MAX_QUESTIONS]) if q]
+    if not cleaned:
+        return [], [], False, 0
+    search = searcher or (lambda domains: search_client(settings, engine, company_id, domains))
+    budget = _Budget(clock)
+    references = _references_for(engine, company_id, cleaned, category)
+    sources = _gather(references, cleaned, category, search, budget)
+    findings = _ask(engine, settings, company_id, message_id, cleaned, sources, budget.left())
+    unanswered = [q for q in cleaned if not any(f.question == q for f in findings)]
+    return findings, unanswered, budget.failed, budget.searches
+
+
+def ad_hoc_research(
+    engine: Engine,
+    settings: Settings,
+    company_id: UUID,
+    message_id: UUID,
+    questions: Sequence[str],
+    category: Category,
+    *,
+    searcher: Searcher | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> tuple[Finding, ...]:
+    """Run targeted research for owner-requested draft enhancement without overwriting `UnderstandingRow.research`."""
+    findings, _, _, _ = _run_questions(engine, settings, company_id, message_id, questions, category, searcher, clock)
+    return tuple(findings)
+
+
 def research_for(
     engine: Engine, settings: Settings, company_id: UUID, message_id: UUID, *, searcher: Searcher | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -218,16 +320,12 @@ def research_for(
             return stored_findings(row.research)
         if not und.needs_research or not und.requires_reply or und.suspicious.flag:
             return ()
-    questions = [q for q in (strip_risky(q).strip() for q in und.research_questions[:MAX_QUESTIONS]) if q]
-    search = searcher or (lambda domains: search_client(settings, engine, company_id, domains))
-    budget = _Budget(clock)
-    references = _references_for(engine, company_id, questions, und.category) if questions else []
-    sources = _gather(references, questions, und.category, search, budget) if questions else []
-    findings = _ask(engine, settings, company_id, message_id, questions, sources, budget.left())
-    unanswered = [q for q in questions if not any(f.question == q for f in findings)]
-    if budget.failed and unanswered:
+    findings, unanswered, failed, searches = _run_questions(
+        engine, settings, company_id, message_id, und.research_questions, und.category, searcher, clock
+    )
+    if failed and unanswered:
         log.info("draft_research.not_final", unanswered=len(unanswered))
         return tuple(findings)  # not stored: a search failed, so a later run (redraft, draft-open) tries again
     _store(engine, company_id, row.id, findings, unanswered)
-    log.info("draft_research.done", findings=len(findings), unanswered=len(unanswered), searches=budget.searches)
+    log.info("draft_research.done", findings=len(findings), unanswered=len(unanswered), searches=searches)
     return tuple(findings)

@@ -11,9 +11,11 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import Engine, select
+from sqlalchemy import case as sql_case
 from sqlalchemy.orm import Session
 
 from app.context.memory_items import record_owner_memory
+from app.contracts import Urgency
 from app.core.errors import AgentFailedError, BudgetExceededError, NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
@@ -191,10 +193,16 @@ def _question(
 ) -> str:
     """owner_qa over the open cases and tasks; on a dashboard page also its facts and snapshot (prompt v3)."""
     with Session(engine) as session:
+        urgency_order = sql_case(
+            (Case.urgency == Urgency.emergency, 0),
+            (Case.urgency == Urgency.high, 1),
+            (Case.urgency == Urgency.normal, 2),
+            else_=3,
+        )
         cases = session.scalars(
             select(Case)
             .where(Case.company_id == company_id, Case.state.in_(case_repo.OPEN_STATES))
-            .order_by(Case.opened_at.desc())
+            .order_by(urgency_order.asc(), Case.opened_at.desc(), Case.id.desc())
             .limit(20)
         ).all()
         briefs = [CaseBrief(c.id, case_label(session, c), c.state.value, c.urgency.value, c.summary) for c in cases]

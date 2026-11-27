@@ -93,13 +93,113 @@ describe("Today Category Desk", () => {
     expect(html).toContain("Review draft");
     expect(html).toContain("Ask Astra");
   });
+
+  it("renders All tab (BRIXX & Calendar only), urgency filters, and Waiting split sections", () => {
+    const desk: CategoryDeskData = {
+      brief: "1 reply ready to approve.",
+      actions: [
+        {
+          id: "act-emg",
+          category: "finance",
+          kind: "approve_draft",
+          title: "Bailiff notice Singel 1",
+          why: "Deadline today",
+          urgency: "emergency",
+          due_at: null,
+          case_id: "case-emg",
+          approval_id: "appr-emg",
+          prepared: "Akkoord.",
+          target_url: "/inbox?thread=case-emg",
+          channel: "gmail",
+          sender_name: "Jansen Gerechtsdeurwaarders",
+          unit_label: "Singel 1",
+          has_draft: true,
+        },
+      ],
+      waiting_for_us: [
+        {
+          id: "wait-us:case-1",
+          category: "finance",
+          kind: "reply_needed",
+          title: "Send signed contract",
+          why: "Send signed contract",
+          urgency: "high",
+          due_at: null,
+          case_id: "case-1",
+          approval_id: null,
+          prepared: null,
+          target_url: "/inbox?thread=case-1",
+          channel: "whatsapp",
+          sender_name: "Sanne",
+          waiting_side: "owner",
+          waiting_days: 2,
+          obligation: "Send signed contract",
+        },
+      ],
+      waiting_for_other: [
+        {
+          id: "wait-other:case-2",
+          category: "finance",
+          kind: "overdue_wait",
+          title: "Contractor to send quote Friday",
+          why: "Contractor to send quote Friday",
+          urgency: "normal",
+          due_at: null,
+          case_id: "case-2",
+          approval_id: null,
+          prepared: null,
+          target_url: "/inbox?thread=case-2",
+          channel: "gmail",
+          sender_name: "Loodgieter BV",
+          waiting_side: "third_party",
+          waiting_days: 3,
+          obligation: "Contractor to send quote Friday",
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(CategoryDeskView, {
+        summaries: SUMMARIES,
+        activeCategory: "finance",
+        desk,
+        urgencyFilter: "all",
+        onSelectUrgency: () => {},
+        onSelectCategory: () => {},
+        onAskAstra: () => {},
+        allContent: React.createElement("div", null, "BRIXX & Calendar Only"),
+        allCount: 3,
+      })
+    );
+    expect(html).toContain('data-category="all"');
+    expect(html).toContain("Emergency");
+    expect(html).toContain("Urgent");
+    expect(html).toContain("Waiting for our message");
+    expect(html).toContain("Waiting for other");
+    expect(html).toContain("Send signed contract");
+    expect(html).toContain("Contractor to send quote Friday");
+
+    const allHtml = renderToStaticMarkup(
+      React.createElement(CategoryDeskView, {
+        summaries: SUMMARIES,
+        activeCategory: "all",
+        desk,
+        onSelectCategory: () => {},
+        allContent: React.createElement("div", null, "BRIXX & Calendar Only"),
+        allCount: 3,
+      })
+    );
+    expect(allHtml).toContain("BRIXX &amp; Calendar Only");
+    expect(allHtml).not.toContain("Jansen Gerechtsdeurwaarders");
+  });
 });
 
 describe("Inbox composer commitments", () => {
-  it("the composer lists a draft's commitments above Approve", () => {
+  it("the composer shows a collapsible commitments pill above Approve and opens its card when enabled", () => {
     const commitmentsHtml = renderToStaticMarkup(
       React.createElement(DraftCommitments, {
         commitments: ["Send mechanic Friday morning", "Cap invoice at €250"],
+        defaultOpen: true,
       })
     );
     expect(commitmentsHtml).toContain("Send mechanic Friday morning");
@@ -130,7 +230,7 @@ describe("Inbox composer commitments", () => {
       )
     );
 
-    const commitmentPos = composerHtml.indexOf("Monteur komt vrijdagochtend");
+    const commitmentPos = composerHtml.indexOf("Commitments (2)");
     const approvePos = composerHtml.indexOf("Accept &amp; send");
     expect(commitmentPos).toBeGreaterThan(-1);
     expect(approvePos).toBeGreaterThan(commitmentPos);

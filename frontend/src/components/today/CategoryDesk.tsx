@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, MessageSquareText } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Clock, Inbox, Loader2, UserCheck } from "lucide-react";
 import {
   getCategoryDesk,
   getDashboardCategories,
@@ -10,18 +11,61 @@ import {
   type CategoryNextAction,
   type CategorySummaryItem,
 } from "@/lib/api";
-import { categoryLabel, fallbackCategorySummaries, pickInitialCategory, type BusinessCategory } from "@/lib/categories";
+import {
+  categoryLabel,
+  fallbackCategorySummaries,
+  type BusinessCategory,
+  type DashboardTab,
+  type UrgencyFilter,
+} from "@/lib/categories";
 import { CategoryTabs } from "@/components/today/CategoryTabs";
+import { ThreadRow, type ThreadRowItem } from "@/components/ui/ThreadRow";
 import { cn } from "@/lib/utils";
+
+function actionToThreadRow(action: CategoryNextAction): ThreadRowItem {
+  const isDraftReady = Boolean(action.has_draft || action.kind === "approve_draft" || action.approval_id !== null);
+  const contactName = action.sender_name || action.title;
+  const subjectText = action.sender_name
+    ? action.subject || (action.title !== action.sender_name ? action.title : action.why)
+    : action.why;
+  const snippetText =
+    action.obligation ||
+    action.prepared ||
+    (action.sender_name && action.why !== subjectText ? action.why : "");
+
+  return {
+    id: action.id,
+    contactName,
+    channel: action.channel ?? undefined,
+    unit: action.unit_label || "",
+    subject: subjectText || action.title,
+    snippet: snippetText,
+    hasDraft: isDraftReady,
+    lastFromUs: action.waiting_side === "third_party",
+    lastAt: action.last_at || action.due_at || "",
+    urgent: action.urgency === "high",
+    urgency: action.urgency,
+    waitingDays: action.waiting_days ?? undefined,
+    isRead: false,
+    category: action.category,
+    status: action.waiting_side === "third_party" ? "waiting" : "needs_you",
+  };
+}
 
 interface CategoryDeskViewProps {
   summaries: readonly CategorySummaryItem[];
-  activeCategory: BusinessCategory;
+  activeCategory: DashboardTab;
   desk: CategoryDeskData | null;
   loading?: boolean;
   offline?: boolean;
-  onSelectCategory: (category: BusinessCategory) => void;
+  urgencyFilter?: UrgencyFilter;
+  onSelectUrgency?: (filter: UrgencyFilter) => void;
+  onSelectCategory: (category: DashboardTab) => void;
+  onOpenAction?: (action: CategoryNextAction) => void;
   onAskAstra?: (action: CategoryNextAction) => void;
+  allContent?: React.ReactNode;
+  allCount?: number | null;
+  allHasUrgent?: boolean;
 }
 
 export function CategoryDeskView({
@@ -30,90 +74,241 @@ export function CategoryDeskView({
   desk,
   loading = false,
   offline = false,
+  urgencyFilter = "all",
+  onSelectUrgency,
   onSelectCategory,
+  onOpenAction,
   onAskAstra,
+  allContent,
+  allCount = null,
+  allHasUrgent = false,
 }: CategoryDeskViewProps) {
-  const label = categoryLabel(activeCategory) ?? activeCategory;
-  const actions = desk?.actions ?? [];
+  const showAllTab = Boolean(allContent);
+  const isAllTab = activeCategory === "all";
+  const label = isAllTab ? "All · BRIXX & Calendar" : (categoryLabel(activeCategory) ?? activeCategory);
+
+  const allActions = useMemo(() => desk?.actions ?? [], [desk?.actions]);
+  const emergencyCount = useMemo(
+    () => allActions.filter((a) => a.urgency === "emergency").length,
+    [allActions]
+  );
+  const urgentCount = useMemo(
+    () => allActions.filter((a) => a.urgency === "high").length,
+    [allActions]
+  );
+  const filteredActions = useMemo(() => {
+    if (urgencyFilter === "emergency") return allActions.filter((a) => a.urgency === "emergency");
+    if (urgencyFilter === "high") return allActions.filter((a) => a.urgency === "high");
+    return allActions;
+  }, [allActions, urgencyFilter]);
+
+  const waitingForUs = desk?.waiting_for_us ?? [];
+  const waitingForOther = desk?.waiting_for_other ?? [];
 
   return (
     <section
       aria-label="Category desk"
-      className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 sm:p-5 space-y-3"
+      className="bg-[var(--pane)] border border-[var(--line)] rounded-[var(--radius-pane)] p-4 sm:p-5 space-y-4"
     >
-      <CategoryTabs summaries={summaries} activeCategory={activeCategory} onSelect={onSelectCategory} />
+      <CategoryTabs
+        summaries={summaries}
+        activeCategory={activeCategory}
+        onSelect={onSelectCategory}
+        showAllTab={showAllTab}
+        allCount={allCount}
+        allHasUrgent={allHasUrgent}
+      />
 
-      <div className="flex items-center justify-between gap-2 pt-0.5">
-        <p className="text-[13px] text-[var(--ink-2)]">
-          <span className="font-semibold text-[var(--ink)]">{label}</span>
-          {offline ? (
-            <span> — Offline. Connect to load open actions.</span>
-          ) : desk?.brief ? (
-            <span> — &ldquo;{desk.brief}&rdquo;</span>
-          ) : loading ? (
-            <span> — Loading actions…</span>
-          ) : (
-            <span> — Quiet. Nothing waiting right now.</span>
-          )}
-        </p>
-        {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--ink-3)] shrink-0" />}
-      </div>
+      {isAllTab && allContent ? (
+        <div className="space-y-4 pt-1">
+          <p className="text-[13px] text-[var(--ink-2)]">
+            <span className="font-semibold text-[var(--ink)]">{label}</span>
+            <span> — Direct BRIXX tickets, rent/lease alerts, and Google Calendar visits (no mail or WhatsApp here).</span>
+          </p>
+          {allContent}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-0.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="text-[13px] text-[var(--ink-2)]">
+                <span className="font-semibold text-[var(--ink)]">{label}</span>
+                {offline ? (
+                  <span> — Offline. Connect to load open actions.</span>
+                ) : desk?.brief ? (
+                  <span> — &ldquo;{desk.brief}&rdquo;</span>
+                ) : loading ? (
+                  <span> — Loading actions…</span>
+                ) : (
+                  <span> — Quiet. Nothing waiting right now.</span>
+                )}
+              </p>
+              {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--ink-3)] shrink-0" />}
+            </div>
 
-      {!offline && actions.length > 0 && (
-        <ol className="divide-y divide-[var(--line)] border-t border-[var(--line)]">
-          {actions.map((action, index) => {
-            const isDraftReady = action.kind === "approve_draft" || action.approval_id !== null;
-            return (
-              <li
-                key={action.id}
-                className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+            {onSelectUrgency && !offline && (
+              <div
+                role="group"
+                aria-label="Urgency filter"
+                className="inline-flex items-center rounded-lg border border-[var(--line)] p-0.5 bg-[var(--bg)] text-[11.5px] font-medium shrink-0 self-start sm:self-auto"
               >
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <span className="w-5 text-right font-mono text-xs text-[var(--ink-3)] tabular-nums shrink-0 pt-0.5">
-                    {index + 1}
-                  </span>
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span
-                        className={cn(
-                          "text-[13px] font-semibold text-[var(--ink)]",
-                          (action.urgency === "emergency" || action.urgency === "high") && "text-[var(--accent-ink)]"
-                        )}
-                      >
-                        {action.title}
-                      </span>
-                      {action.why && (
-                        <span className="text-[12px] text-[var(--ink-2)]">— {action.why}</span>
-                      )}
-                    </div>
-                    {action.prepared && (
-                      <p className="text-[12px] text-[var(--ink-3)] line-clamp-2">{action.prepared}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0 pl-7 sm:pl-0">
-                  <Link
-                    href={action.target_url || "/inbox"}
-                    className="inline-flex items-center px-2.5 py-1 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--bg)] hover:bg-[var(--selected)] text-[12px] font-semibold text-[var(--ink)] transition-colors whitespace-nowrap"
-                  >
-                    {isDraftReady ? "Review draft" : "Open"}
-                  </Link>
-                  {onAskAstra && (
+                {(
+                  [
+                    { id: "all", text: "All", count: allActions.length },
+                    { id: "emergency", text: "Emergency", count: emergencyCount },
+                    { id: "high", text: "Urgent", count: urgentCount },
+                  ] as const
+                ).map((opt) => {
+                  const selected = urgencyFilter === opt.id;
+                  return (
                     <button
+                      key={opt.id}
                       type="button"
-                      onClick={() => onAskAstra(action)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[var(--radius-ctl)] border border-[var(--line)] bg-[var(--pane)] hover:bg-[var(--selected)] text-[12px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] transition-colors cursor-pointer whitespace-nowrap"
+                      onClick={() => onSelectUrgency(opt.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors cursor-pointer whitespace-nowrap",
+                        selected
+                          ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                          : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+                      )}
                     >
-                      <MessageSquareText className="w-3 h-3" />
-                      <span>Ask Astra</span>
+                      <span>{opt.text}</span>
+                      {opt.count > 0 && (
+                        <span
+                          className={cn(
+                            "tabular-nums text-[10.5px]",
+                            selected
+                              ? "text-white/85"
+                              : opt.id === "emergency"
+                                ? "text-[#E14D12] font-semibold"
+                                : "text-[var(--ink-3)]"
+                          )}
+                        >
+                          {opt.count}
+                        </span>
+                      )}
                     </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {!offline && filteredActions.length > 0 ? (
+            <div className="rounded-[var(--radius-pane)] border border-[var(--line)] overflow-hidden bg-[var(--pane)]">
+              {filteredActions.map((action) => {
+                const isDraftReady = Boolean(
+                  action.has_draft || action.kind === "approve_draft" || action.approval_id !== null
+                );
+                return (
+                  <div key={action.id}>
+                    <ThreadRow
+                      t={actionToThreadRow(action)}
+                      actionLabel={isDraftReady ? "Review draft" : "Open"}
+                      onSelect={() => onOpenAction?.(action)}
+                      onAskAstra={onAskAstra ? () => onAskAstra(action) : undefined}
+                    />
+                    <div className="sr-only">
+                      <span>{action.title}</span>
+                      <span>{action.why}</span>
+                      {action.prepared && <span>{action.prepared}</span>}
+                      <Link href={action.target_url || "/inbox"}>
+                        {isDraftReady ? "Review draft" : "Open"}
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : !offline && !loading ? (
+            <div className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--bg)]/50 px-4 py-5 text-center text-[12.5px] text-[var(--ink-3)]">
+              {urgencyFilter === "all"
+                ? `No open ${label.toLowerCase()} messages needing action right now.`
+                : `No ${urgencyFilter === "emergency" ? "emergency" : "urgent"} items in ${label}.`}
+            </div>
+          ) : null}
+
+          {!offline && (waitingForUs.length > 0 || waitingForOther.length > 0) && (
+            <div className="pt-2 border-t border-[var(--line)] space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[12px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
+                  Waiting &amp; Open Follow-ups · {label}
+                </h3>
+                <span className="text-[11px] text-[var(--ink-3)] tabular-nums">
+                  {waitingForUs.length + waitingForOther.length} tracked
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {/* Subsection 1: Waiting for our message */}
+                <div className="rounded-[var(--radius-pane)] border border-[var(--line)] bg-[var(--bg)]/40 overflow-hidden">
+                  <div className="px-3.5 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Inbox className="w-3.5 h-3.5 text-[var(--accent-ink)] shrink-0" />
+                      <span className="text-[12.5px] font-semibold text-[var(--ink)] truncate">
+                        Waiting for our message
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-semibold tabular-nums text-[var(--ink-2)]">
+                      {waitingForUs.length}
+                    </span>
+                  </div>
+                  {waitingForUs.length > 0 ? (
+                    <div className="divide-y divide-[var(--line)]">
+                      {waitingForUs.map((item) => (
+                        <ThreadRow
+                          key={item.id}
+                          t={actionToThreadRow(item)}
+                          onSelect={() => onOpenAction?.(item)}
+                          onAskAstra={onAskAstra ? () => onAskAstra(item) : undefined}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="px-3.5 py-4 text-[12px] text-[var(--ink-3)]">
+                      No pending promises or unanswered messages owed by us.
+                    </p>
                   )}
                 </div>
-              </li>
-            );
-          })}
-        </ol>
+
+                {/* Subsection 2: Waiting for other */}
+                <div className="rounded-[var(--radius-pane)] border border-[var(--line)] bg-[var(--bg)]/40 overflow-hidden">
+                  <div className="px-3.5 py-2.5 border-b border-[var(--line)] bg-[var(--pane)] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {waitingForOther.length > 0 ? (
+                        <Clock className="w-3.5 h-3.5 text-[var(--ink-2)] shrink-0" />
+                      ) : (
+                        <UserCheck className="w-3.5 h-3.5 text-[var(--ink-3)] shrink-0" />
+                      )}
+                      <span className="text-[12.5px] font-semibold text-[var(--ink)] truncate">
+                        Waiting for other
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-semibold tabular-nums text-[var(--ink-2)]">
+                      {waitingForOther.length}
+                    </span>
+                  </div>
+                  {waitingForOther.length > 0 ? (
+                    <div className="divide-y divide-[var(--line)]">
+                      {waitingForOther.map((item) => (
+                        <ThreadRow
+                          key={item.id}
+                          t={actionToThreadRow(item)}
+                          onSelect={() => onOpenAction?.(item)}
+                          onAskAstra={onAskAstra ? () => onAskAstra(item) : undefined}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="px-3.5 py-4 text-[12px] text-[var(--ink-3)]">
+                      Nothing awaiting external updates in {label}.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </section>
   );
@@ -121,11 +316,21 @@ export function CategoryDeskView({
 
 interface CategoryDeskProps {
   onAskAstra?: (action: CategoryNextAction) => void;
+  allContent?: React.ReactNode;
+  allCount?: number | null;
+  allHasUrgent?: boolean;
 }
 
-export function CategoryDesk({ onAskAstra }: CategoryDeskProps) {
+export function CategoryDesk({
+  onAskAstra,
+  allContent,
+  allCount = null,
+  allHasUrgent = false,
+}: CategoryDeskProps) {
+  const router = useRouter();
   const [summaries, setSummaries] = useState<CategorySummaryItem[]>(() => fallbackCategorySummaries());
-  const [activeCategory, setActiveCategory] = useState<BusinessCategory>("maintenance");
+  const [activeCategory, setActiveCategory] = useState<DashboardTab>("finance");
+  const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
   const [desk, setDesk] = useState<CategoryDeskData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [offline, setOffline] = useState<boolean>(false);
@@ -141,8 +346,6 @@ export function CategoryDesk({ onAskAstra }: CategoryDeskProps) {
       }
       setOffline(false);
       setSummaries(loaded);
-      const initial = pickInitialCategory(loaded);
-      setActiveCategory(initial);
     });
     return () => {
       active = false;
@@ -150,9 +353,11 @@ export function CategoryDesk({ onAskAstra }: CategoryDeskProps) {
   }, []);
 
   useEffect(() => {
-    if (offline) return;
+    if (offline || activeCategory === "all") {
+      return;
+    }
     let active = true;
-    getCategoryDesk(activeCategory).then((data) => {
+    getCategoryDesk(activeCategory as BusinessCategory).then((data) => {
       if (!active) return;
       if (!data) {
         setOffline(true);
@@ -166,8 +371,9 @@ export function CategoryDesk({ onAskAstra }: CategoryDeskProps) {
     };
   }, [activeCategory, offline]);
 
-  const handleSelect = (category: BusinessCategory) => {
-    setLoading(true);
+  const handleSelect = (category: DashboardTab) => {
+    setUrgencyFilter("all");
+    setLoading(category !== "all");
     setActiveCategory(category);
   };
 
@@ -178,8 +384,14 @@ export function CategoryDesk({ onAskAstra }: CategoryDeskProps) {
       desk={desk}
       loading={loading}
       offline={offline}
+      urgencyFilter={urgencyFilter}
+      onSelectUrgency={setUrgencyFilter}
       onSelectCategory={handleSelect}
+      onOpenAction={(action) => router.push(action.target_url || "/inbox")}
       onAskAstra={onAskAstra}
+      allContent={allContent}
+      allCount={allCount}
+      allHasUrgent={allHasUrgent}
     />
   );
 }

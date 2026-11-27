@@ -372,7 +372,8 @@ function InboxContent() {
     draftText: string,
     outboundChannel: "whatsapp" | "gmail",
     replyToMessageId?: string,
-    forceManualReply = false
+    forceManualReply = false,
+    attachmentIds?: string[]
   ): Promise<boolean> => {
     const targetThread = threads.find((t) => t.id === threadId);
     const caseId = targetThread?.caseId || targetThread?.id || threadId;
@@ -392,9 +393,9 @@ function InboxContent() {
     const result = await approveOrReply({
       approve:
         hasPendingApproval && approvalId
-          ? () => approveInboxDraft(approvalId, "d1", draftText, effectiveMsg?.id)
+          ? () => approveInboxDraft(approvalId, "d1", draftText, effectiveMsg?.id, attachmentIds)
           : undefined,
-      reply: () => sendThreadReply(caseId, draftText, outboundChannel, effectiveMsg?.id),
+      reply: () => sendThreadReply(caseId, draftText, outboundChannel, effectiveMsg?.id, attachmentIds),
     });
 
     if (!result.ok || result.status === "rejected" || result.status === "held") {
@@ -852,11 +853,13 @@ function InboxContent() {
             threadCount={filteredAndSortedThreads.length}
             isThreadsDrawerOpen={showThreadsDrawer}
             onToggleThreadsDrawer={() => setShowThreadsDrawer((v) => !v)}
-            onApproveDraft={handleApproveDraft}
+            onApproveDraft={(threadId, text, chan, replyToId, attachmentIds) =>
+              handleApproveDraft(threadId, text, chan, replyToId, false, attachmentIds)
+            }
             onRejectDraft={handleRejectDraft}
-            onSendManualReply={(threadId, text, replyToId) => {
+            onSendManualReply={(threadId, text, replyToId, attachmentIds) => {
               const chan = activeThread?.channel === "gmail" ? "gmail" : "whatsapp";
-              return handleApproveDraft(threadId, text, chan, replyToId, true);
+              return handleApproveDraft(threadId, text, chan, replyToId, true, attachmentIds);
             }}
             onMarkDone={handleMarkDone}
             onSnooze={handleSnooze}

@@ -48,6 +48,11 @@ def chat_workflow_id(company_id: object, client_msg_id: object) -> str:
     return f"chat:{company_id}:{client_msg_id}"
 
 
+def document_workflow_id(attachment_id: object) -> str:
+    """`doc:<attachment_id>`: the one automatic filing run of an attachment."""
+    return f"doc:{attachment_id}"
+
+
 def reorg_workflow_id(plan_id: object) -> str:
     """`drive:reorg:<plan_id>`: the one application of an approved Drive reorganisation plan."""
     return f"drive:reorg:{plan_id}"

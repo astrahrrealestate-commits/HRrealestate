@@ -20,7 +20,7 @@ from app.db.models import ActionRow, OwnerPersona
 from app.llm.agents.proposer import MAX_PERSONA_CHARS, Persona
 
 DEFAULT_PATH = Path(__file__).parent / "default_persona.md"
-DEFAULT_NAME = "Harjot (mock persona)"
+DEFAULT_NAME = "Harjot Singh"
 CUSTOM_NAME = "Harjot (custom)"
 
 

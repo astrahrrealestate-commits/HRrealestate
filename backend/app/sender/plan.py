@@ -21,4 +21,5 @@ class Plan:
     case_id: UUID | None = None  # the case whose contact a tenant plan goes to
     owner_message: OwnerMessage | None = None  # dashboard plans: the feed row's message
     company_id: UUID | None = None  # dashboard plans: whose owner feed (re-checked by `assert_allowed`)
-    chat_message_id: UUID | None = None  # owner-typed chat send: the stored outbound row (`assert_chat` re-derives all)
+    chat_message_id: UUID | None = None  # owner-typed chat send: the stored outbound row (`assert_chat` re-ives all)
+    attachment_ids: tuple[UUID, ...] = ()  # company-owned attachment rows to include on delivery

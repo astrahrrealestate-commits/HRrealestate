@@ -30,7 +30,7 @@ def test_run_agent_records_model_call(
         assert call is not None
         assert call.purpose == "triage_test"
         assert call.prompt_name == "understanding"
-        assert call.prompt_version == "v4"
+        assert call.prompt_version == "v6"
         assert call.prompt_sha256 == load_prompt(UNDERSTANDING.prompt).sha256
         assert call.model == "fake"
         assert call.error is None

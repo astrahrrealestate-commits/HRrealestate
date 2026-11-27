@@ -78,6 +78,13 @@ class Money(Contract):
 
 
 @dataclass(frozen=True)
+class MailAttachment:
+    filename: str
+    mime_type: str
+    content: bytes
+
+
+@dataclass(frozen=True)
 class DraftRequest:
     idempotency_key: str
     thread_id: str
@@ -86,6 +93,7 @@ class DraftRequest:
     body: str
     in_reply_to: str | None = None
     references: str | None = None
+    attachments: tuple[MailAttachment, ...] = ()
 
     @property
     def key_token(self) -> str:

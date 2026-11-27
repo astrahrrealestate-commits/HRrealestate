@@ -15,7 +15,7 @@ from pydantic import AwareDatetime, Field, model_validator
 from app.contracts.case_state import CaseState
 from app.contracts.common import Channel, Contract, NonBlankStr, max_len
 
-DraftVariants = Annotated[list[NonBlankStr], Field(min_length=2, max_length=3)]
+DraftVariants = Annotated[list[NonBlankStr], Field(min_length=2, max_length=2)]
 
 
 class ActionType(StrEnum):

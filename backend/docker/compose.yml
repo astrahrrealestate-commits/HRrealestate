@@ -17,8 +17,8 @@ x-app: &app
     ENV: dev
     DATABASE_URL: postgresql+psycopg://estateos:estateos@postgres:5432/estateos
     SENTRY_DSN: ""
-    # Agents: Gemini 2.5 Flash
-    LLM_MODEL: ${LLM_MODEL:-google-gla:gemini-2.5-flash}
+    # Agents: Gemini 3.8 Flash
+    LLM_MODEL: ${LLM_MODEL:-google-gla:gemini-3.8-flash}
     # Concierge planner model override (e.g. google-gla:gemini-2.5-flash); empty = LLM_MODEL
     CONCIERGE_MODEL: ${CONCIERGE_MODEL:-}
     LLM_TIMEOUT_SEC: ${LLM_TIMEOUT_SEC:-60}

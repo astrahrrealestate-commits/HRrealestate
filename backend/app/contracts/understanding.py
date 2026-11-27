@@ -43,6 +43,14 @@ class Urgency(StrEnum):
     low = "low"
 
 
+class WaitingSide(StrEnum):
+    """Who owes the next message or promised deliverable after this message."""
+
+    owner = "owner"
+    third_party = "third_party"
+    none = "none"
+
+
 class Entities(Contract):
     people: list[str]
     unit_refs: list[str]
@@ -78,16 +86,31 @@ class Understanding(Contract):
     sender_role: SenderRole | None  # None when the sender is unclear or the mail is not about the portfolio
     needs_research: bool  # a quote, legal or works question, or anything our data cannot answer (M13)
     research_questions: Annotated[list[Annotated[NonBlankStr, max_len(300)]], Field(max_length=3)]
+    waiting_side: WaitingSide
+    open_obligation: Annotated[NonBlankStr, max_len(200)] | None
+    expected_days: Annotated[int, Field(ge=1, le=60)] | None
     prompt_version: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*/v[0-9]+$")]
 
     @model_validator(mode="before")
     @classmethod
     def _research_defaults_for_stored_bodies(cls, data: Any) -> Any:
-        """Bodies stored before understanding/v4 have no research fields: nothing to research. Required in the LLM
-        schema (strict mode lists every property), defaulted here."""
+        """Bodies stored before understanding/v4 (research) and v6 (waiting) lack newer fields: defaulted here
+        while keeping the strict JSON output schema complete."""
         if not isinstance(data, dict):
             return data
-        return {"needs_research": False, "research_questions": [], **data}
+        out = {"needs_research": False, "research_questions": [], **data}
+        if "waiting_side" not in out:
+            req_reply = out.get("requires_reply", True)
+            cat = out.get("category")
+            ws = (
+                WaitingSide.none.value
+                if (cat in (Category.spam, Category.spam.value) or req_reply is False)
+                else WaitingSide.owner.value
+            )
+            out["waiting_side"] = ws
+        out.setdefault("open_obligation", None)
+        out.setdefault("expected_days", None)
+        return out
 
     @model_validator(mode="before")
     @classmethod

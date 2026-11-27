@@ -1,6 +1,6 @@
 # Project context (auto)
 
-Generated: 2026-11-23T09:19:21.451Z
+Generated: 2026-11-26T12:42:22.939Z
 
 ## Detected stack
 
@@ -8,64 +8,61 @@ Generated: 2026-11-23T09:19:21.451Z
 
 ## Git
 
-- Branch: `dev`
-- HEAD: `37a8247`
+- Branch: `m13-ai-staff`
+- HEAD: `7f60b4b`
 
 ## Recent commits
 
-- `37a8247` chore: sync pending context doc, concierge eval reports and Connections tab display override _(Aditya Jain, 2026-11-23)_
-- `6eb17e6` fix(calendar): Dutch time everywhere and no invented meetings _(Aditya Jain, 2026-11-23)_
-- `40d2315` feat(calendar): show and answer incoming Google Calendar invites on the dashboard _(Aditya Jain, 2026-11-23)_
-- `20b9c78` chore(merge): bring hrrealestate/dev into the documents work _(Aditya Jain, 2026-11-23)_
-- `1ea1c3b` feat(brixx): drain the document backlog faster and refresh the Documents tab while files arrive _(Aditya Jain, 2026-11-23)_
-- `fa1a50b` fix(test): provide required primary keys in test_tenant_documents mirror fixtures _(Suryansh Tyagi, 2026-11-23)_
-- `0bd13ef` merge: pull latest changes from hr-remote/dev and resolve line wrapping _(Suryansh Tyagi, 2026-11-23)_
-- `bc9d5f9` fix(tenants): address review of the Tickets tab _(Aditya Jain, 2026-11-23)_
-- `3b74423` fix(tenants): list a tenant's tickets in the Tickets tab _(Aditya Jain, 2026-11-23)_
-- `cb39774` fix(ci): fix ruff E501 line lengths, golden eval task routing, and bump inscriptis to 2.7.7 _(Suryansh Tyagi, 2026-11-23)_
-- `8c25d03` feat(brixx): tenant documents tab, document API and a reaper for workflows an old deploy stranded _(Aditya Jain, 2026-11-23)_
-- `80359f4` fix(brixx): skip only PG_/SQL_ catalogs on 404; pin v8 hash and v9 rules _(Aditya Jain, 2026-11-23)_
-- `76906ca` feat(calendar): add top-N calendar approvals widget directly after needs-you on main dashboard _(Suryansh Tyagi, 2026-11-23)_
-- `57eb9f7` fix(brixx): skip listed tables BRIXX cannot describe so runs stop failing _(Aditya Jain, 2026-11-23)_
-- `61dddbe` fix(concierge): restore published prompt v8, ship the Astra persona as v9 _(Aditya Jain, 2026-11-23)_
-- `16e925e` feat(superagent): upgrade to Gemini 3.8 Flash, add Astra persona, and enhance query agent _(Suryansh Tyagi, 2026-11-23)_
-- `1ce8a41` feat(scripts): add mailbox-to-mailbox sync tool for old-to-new Gmail migration _(Suryansh Tyagi, 2026-11-20)_
-- `e0a4517` fix(contacts): support full thread continuity in communications API & add staging IMAP migration script _(Suryansh Tyagi, 2026-11-20)_
-- `43a64a1` fix(maintenance,dashboard): deprioritize unreconciled rent and add priority sort for maintenance _(Suryansh Tyagi, 2026-11-19)_
-- `74869f2` fix(maintenance): resolve CI ruff and brixx name checks, single-source brixx tickets, and add contextual follow-up drafting _(Suryansh Tyagi, 2026-11-19)_
+- `7f60b4b` fix(inbox,pipeline): separate mail threads cleanly, isolate channels, keep drafts in composer, and cap drafts at 2 _(Aditya Jain, 2026-11-26)_
+- `b398b8f` feat(ops): add Vastgoed IMAP history backfill script for M13 _(Suryansh Tyagi, 2026-11-26)_
+- `aaabb07` Merge remote-tracking branch 'hr-remote/m13-c' into dev _(Suryansh Tyagi, 2026-11-26)_
+- `582edca` Merge remote-tracking branch 'hr-remote/m13-ai-staff' into dev _(Suryansh Tyagi, 2026-11-26)_
+- `d811a08` feat(proposer): v7 uses what was settled and asks one question per missing item _(Aditya Jain, 2026-11-26)_
+- `337af2b` feat(infra): Astra's research gets 100 s, the ALB and the browser wait for it _(Aditya Jain, 2026-11-26)_
+- `995b87e` feat(superagent): Astra asks for independent lookups in one turn; understanding v4 real-model report _(Aditya Jain, 2026-11-26)_
+- `589fe65` chore(m13): merge lane A 8f3b84f (ID text before storage, draft research fixes) into m13-c _(Aditya Jain, 2026-11-26)_
+- `170d4b1` fix(dashboard,rag): quote reviews need the money section; the rerank embeds a capped number of windows _(Aditya Jain, 2026-11-26)_
+- `269b416` fix(reload): settle and draft-open wait for the history run; draft-report and status modes _(Aditya Jain, 2026-11-26)_
+- `8f3b84f` fix(m13): ID scans refused by their text, wider purge, safer draft research _(Aditya Jain, 2026-11-26)_
+- `840e9df` fix(documents): a tenant's own papers never join the reference library _(Aditya Jain, 2026-11-26)_
+- `d9537f6` fix(superagent): the research loop thinks low so its lookups fit the deadline _(Aditya Jain, 2026-11-26)_
+- `74e9de7` Merge remote-tracking branch 'hr-remote/m13-ai-staff' into dev _(Suryansh Tyagi, 2026-11-26)_
+- `7c76798` fix(dashboard): guard nullable pulse metrics before setting state _(Suryansh Tyagi, 2026-11-26)_
+- `aba3498` fix(pipeline,inbox): show all non-spam mail in inbox and parallelize price/research prep _(Aditya Jain, 2026-11-26)_
+- `4b87887` chore(m13): merge hrrealestate/m13-ai-staff UI updates _(Aditya Jain, 2026-11-26)_
+- `2b7f843` fix(pipeline): feed readable attachments into person memory and pass embedder on redrafts _(Aditya Jain, 2026-11-26)_
+- `93801c3` Merge remote-tracking branch 'origin/m13-ai-staff' into dev _(Suryansh Tyagi, 2026-11-26)_
+- `ab2f451` fix(rag): stabilize embedder event loop, semantic rerank, and research recall _(Aditya Jain, 2026-11-26)_
 
 ## Inferred recent decisions
 
-- `6eb17e6` fix(calendar): Dutch time everywhere and no invented meetings
-- `40d2315` feat(calendar): show and answer incoming Google Calendar invites on the dashboard
-- `1ea1c3b` feat(brixx): drain the document backlog faster and refresh the Documents tab while files arrive
-- `fa1a50b` fix(test): provide required primary keys in test_tenant_documents mirror fixtures
-- `bc9d5f9` fix(tenants): address review of the Tickets tab
-- `3b74423` fix(tenants): list a tenant's tickets in the Tickets tab
-- `cb39774` fix(ci): fix ruff E501 line lengths, golden eval task routing, and bump inscriptis to 2.7.7
-- `8c25d03` feat(brixx): tenant documents tab, document API and a reaper for workflows an old deploy stranded
-- `80359f4` fix(brixx): skip only PG_/SQL_ catalogs on 404; pin v8 hash and v9 rules
-- `76906ca` feat(calendar): add top-N calendar approvals widget directly after needs-you on main dashboard
-- `57eb9f7` fix(brixx): skip listed tables BRIXX cannot describe so runs stop failing
-- `61dddbe` fix(concierge): restore published prompt v8, ship the Astra persona as v9
-- `16e925e` feat(superagent): upgrade to Gemini 3.8 Flash, add Astra persona, and enhance query agent
-- `1ce8a41` feat(scripts): add mailbox-to-mailbox sync tool for old-to-new Gmail migration
-- `e0a4517` fix(contacts): support full thread continuity in communications API & add staging IMAP migration script
-- `43a64a1` fix(maintenance,dashboard): deprioritize unreconciled rent and add priority sort for maintenance
-- `74869f2` fix(maintenance): resolve CI ruff and brixx name checks, single-source brixx tickets, and add contextual follow-up drafting
+- `7f60b4b` fix(inbox,pipeline): separate mail threads cleanly, isolate channels, keep drafts in composer, and cap drafts at 2
+- `b398b8f` feat(ops): add Vastgoed IMAP history backfill script for M13
+- `d811a08` feat(proposer): v7 uses what was settled and asks one question per missing item
+- `337af2b` feat(infra): Astra's research gets 100 s, the ALB and the browser wait for it
+- `995b87e` feat(superagent): Astra asks for independent lookups in one turn; understanding v4 real-model report
+- `170d4b1` fix(dashboard,rag): quote reviews need the money section; the rerank embeds a capped number of windows
+- `269b416` fix(reload): settle and draft-open wait for the history run; draft-report and status modes
+- `8f3b84f` fix(m13): ID scans refused by their text, wider purge, safer draft research
+- `840e9df` fix(documents): a tenant's own papers never join the reference library
+- `d9537f6` fix(superagent): the research loop thinks low so its lookups fit the deadline
+- `7c76798` fix(dashboard): guard nullable pulse metrics before setting state
+- `aba3498` fix(pipeline,inbox): show all non-spam mail in inbox and parallelize price/research prep
+- `2b7f843` fix(pipeline): feed readable attachments into person memory and pass embedder on redrafts
+- `ab2f451` fix(rag): stabilize embedder event loop, semantic rerank, and research recall
 
 ## Hotspots
 
-- 81x — `docs/PROGRESS.md`
+- 100x — `docs/PROGRESS.md`
+- 53x — `frontend/src/lib/api.ts`
 - 50x — `app/api/agent/routes.py`
-- 45x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
-- 38x — `frontend/src/lib/api.ts`
+- 49x — `frontend/src/components/assistant/AskEstateOSPanel.tsx`
+- 39x — `frontend/src/components/inbox/InboxConversationView.tsx`
 - 38x — `pyproject.toml`
+- 37x — `frontend/src/app/page.tsx`
+- 36x — `frontend/src/app/inbox/page.tsx`
 - 35x — `docs/dashboard-api.md`
 - 35x — `app/api/inbox/routes.py`
-- 34x — `app/core/settings.py`
-- 29x — `frontend/src/app/page.tsx`
-- 28x — `frontend/src/app/tenants/page.tsx`
 
 ## Top-level tree
 
@@ -108,7 +105,12 @@ Generated: 2026-11-23T09:19:21.451Z
 .claude/skills/retro/
 .claude/skills/ship/
 .claude/worktrees/
+.claude/worktrees/agent-a9728f026c99608ce/
 .claude/worktrees/brixx-docs/
+.claude/worktrees/m-chats/
+.claude/worktrees/m-sender-roles-push/
+.claude/worktrees/m13-a/
+.claude/worktrees/m13-c/
 .coverage
 .data/
 .env
@@ -265,9 +267,4 @@ Generated: 2026-11-23T09:19:21.451Z
 .hypothesis/constants/1b81d4d985941a69
 .hypothesis/constants/1b8f41e38f01284b
 .hypothesis/constants/1b9c22884a6f6147
-.hypothesis/constants/1bdadf4880ad507f
-.hypothesis/constants/1bdd85f9d037852f
-.hypothesis/constants/1be411ee2443de67
-.hypothesis/constants/1be8d5608ceaab27
-.hypothesis/constants/1c0df7e4b973cf7a
 ```

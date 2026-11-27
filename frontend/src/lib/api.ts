@@ -180,6 +180,9 @@ export async function getInboxThreads(
                   bodyDutch: m.bodyDutch || undefined,
                   language: m.language,
                   channel: m.channel || channel,
+                  subject: m.subject,
+                  to: Array.isArray(m.to) ? m.to : undefined,
+                  cc: Array.isArray(m.cc) ? m.cc : undefined,
                   replyTo: m.replyTo,
                   attachments: m.attachments || [],
                 }))
@@ -279,7 +282,8 @@ export async function approveInboxDraft(
   approvalId: string,
   choice: "d1" | "d2" | "d3" | "ok" | "edit" | "rej" = "d1",
   editedText?: string,
-  replyToMessageId?: string
+  replyToMessageId?: string,
+  attachmentIds?: string[]
 ): Promise<ApprovalDecideResponse & { ok?: boolean }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/approvals/${approvalId}/decide`, {
@@ -292,6 +296,7 @@ export async function approveInboxDraft(
         choice,
         edited_text: editedText || null,
         reply_to_message_id: replyToMessageId || null,
+        attachment_ids: attachmentIds ?? [],
       }),
       signal: AbortSignal.timeout(25000), // Real Gmail API dispatch takes 5-8s
     });
@@ -330,7 +335,8 @@ export async function sendThreadReply(
   caseId: string,
   body: string,
   channel: "gmail" | "whatsapp",
-  replyToMessageId?: string
+  replyToMessageId?: string,
+  attachmentIds?: string[]
 ): Promise<{ ok: boolean; status: string; message: string }> {
   try {
     const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/reply`, {
@@ -343,6 +349,7 @@ export async function sendThreadReply(
         body,
         channel,
         reply_to_message_id: replyToMessageId || null,
+        attachment_ids: attachmentIds ?? [],
       }),
       signal: AbortSignal.timeout(25000),
     });
@@ -1776,6 +1783,102 @@ export async function translateText(text: string, target: "en" | "nl" = "en"): P
   }
 }
 
+export interface EnhanceDraftResult {
+  ok: boolean;
+  draftText: string;
+  variants: string[];
+  commitments: string[];
+  commitmentsByVariant?: string[][];
+  approvalId?: string | null;
+  draftVersion?: number | null;
+  sourcesUsed?: string[];
+  problem?: string;
+}
+
+export interface UploadedThreadAttachment {
+  ok: boolean;
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  gmailAllowed: boolean;
+  whatsappAllowed: boolean;
+  driveQueued: boolean;
+  problem?: string;
+}
+
+export async function uploadThreadAttachment(caseId: string, file: File): Promise<UploadedThreadAttachment> {
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/attachments`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(60000),
+    });
+    if (res.ok) {
+      return (await res.json()) as UploadedThreadAttachment;
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return {
+      ok: false,
+      attachmentId: "",
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      gmailAllowed: false,
+      whatsappAllowed: false,
+      driveQueued: false,
+      problem: err.detail || "Upload failed.",
+    };
+  } catch {
+    return {
+      ok: false,
+      attachmentId: "",
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      gmailAllowed: false,
+      whatsappAllowed: false,
+      driveQueued: false,
+      problem: "Upload timed out or could not reach the server.",
+    };
+  }
+}
+
+export async function enhanceThreadDraft(
+  caseId: string,
+  payload: { instruction: string; current_text: string; message_id?: string }
+): Promise<EnhanceDraftResult> {
+  try {
+    const res = await apiFetch(`${BACKEND_BASE_URL}/api/inbox/threads/${encodeURIComponent(caseId)}/enhance`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(90000),
+    });
+    if (res.ok) {
+      return (await res.json()) as EnhanceDraftResult;
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return {
+      ok: false,
+      draftText: "",
+      variants: [],
+      commitments: [],
+      problem: err.detail || "Could not enhance draft.",
+    };
+  } catch {
+    return {
+      ok: false,
+      draftText: "",
+      variants: [],
+      commitments: [],
+      problem: "Enhance request timed out or could not reach the server.",
+    };
+  }
+}
+
 /** Back-compat alias for callers that only need Dutch to English. */
 export const translateToEnglish = (text: string) => translateText(text, "en");
 
@@ -2061,6 +2164,7 @@ export interface CategorySummaryItem {
   label: string;
   open_actions: number;
   urgent: number;
+  emergency?: number;
 }
 
 export type CategoryActionKind =
@@ -2085,11 +2189,22 @@ export interface CategoryNextAction {
   approval_id: string | null;
   prepared: string | null;
   target_url: string;
+  channel?: string | null;
+  sender_name?: string | null;
+  unit_label?: string | null;
+  subject?: string | null;
+  last_at?: string | null;
+  waiting_side?: "owner" | "third_party" | null;
+  waiting_days?: number | null;
+  obligation?: string | null;
+  has_draft?: boolean;
 }
 
 export interface CategoryDeskData {
   brief: string | null;
   actions: CategoryNextAction[];
+  waiting_for_us?: CategoryNextAction[];
+  waiting_for_other?: CategoryNextAction[];
 }
 
 export async function getDashboardCategories(): Promise<CategorySummaryItem[] | null> {
@@ -2109,18 +2224,27 @@ export async function getDashboardCategories(): Promise<CategorySummaryItem[] | 
   return null;
 }
 
-export async function getCategoryDesk(category: BusinessCategory): Promise<CategoryDeskData | null> {
+export async function getCategoryDesk(
+  category: BusinessCategory,
+  urgency: "all" | "emergency" | "high" = "all"
+): Promise<CategoryDeskData | null> {
   try {
-    const res = await apiFetch(`${BACKEND_BASE_URL}/api/dashboard/categories/${encodeURIComponent(category)}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(10000),
-    });
+    const qs = urgency === "all" ? "?limit=25" : `?limit=25&urgency=${encodeURIComponent(urgency)}`;
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/dashboard/categories/${encodeURIComponent(category)}${qs}`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
     if (res.ok) {
       const data = await res.json();
       return {
         brief: typeof data?.brief === "string" ? data.brief : null,
         actions: Array.isArray(data?.actions) ? data.actions : [],
+        waiting_for_us: Array.isArray(data?.waiting_for_us) ? data.waiting_for_us : [],
+        waiting_for_other: Array.isArray(data?.waiting_for_other) ? data.waiting_for_other : [],
       };
     }
   } catch {

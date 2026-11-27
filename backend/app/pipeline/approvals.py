@@ -208,11 +208,14 @@ def revise(
     urgency: Urgency,
     now: datetime,
     persona: Persona | None = None,
+    commitments: list[str] | None = None,
 ) -> NewRevision:
     """The revision path (owner edit, owner-requested redraft): `draft_version + 1` with new variants (channel and
     subject stay the action's own), an ActionRevision row keyed by `editor`, and a new pending approval.
     `persona` is the one a redraft was written in; an owner's own edit passes none, so the draft stops claiming one."""
     payload: dict[str, Any] = {**action.payload, "body_variants": variants}
+    if commitments is not None:
+        payload["commitments"] = commitments
     action.draft_version += 1
     action.payload = payload
     action.persona_name = persona.name if persona else None
