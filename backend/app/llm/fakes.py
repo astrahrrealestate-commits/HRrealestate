@@ -362,6 +362,15 @@ def _fake_enhance_planner(prompt: str) -> dict[str, object]:
     return {"rag_queries": rag, "mail_queries": mail, "web_questions": web, "db_question": db}
 
 
+def _fake_enhance_style(prompt: str) -> dict[str, object]:
+    draft = _block(prompt, "current_draft").strip() or "Thanks for your message."
+    instr = _block(prompt, "instruction").strip().lower()
+    if "shorter" in instr or "korter" in instr:
+        short = draft.split(".")[0].strip() + "." if "." in draft else draft[:120]
+        return {"variants": [short, draft[:140]]}
+    return {"variants": [draft, draft]}
+
+
 def fake_person_memory(prompt: str) -> dict[str, object]:
     """What Harjot wrote becomes a commitment, what the person wrote an open issue: enough to test the plumbing."""
     lines = [" ".join(p.split()) for p in _block(prompt, "thread").split("\n\n")]
@@ -423,6 +432,8 @@ def model_for(agent_name: str) -> FunctionModel:
             args = fake_draft_research(user_text)
         elif agent_name == "enhance_planner":
             args = _fake_enhance_planner(user_text)
+        elif agent_name == "enhance_style":
+            args = _fake_enhance_style(user_text)
         elif agent_name == "doc_ocr":
             args = {"text": _extract_binary(messages).removeprefix(b"SCAN").decode("utf-8", errors="replace").strip()}
         else:

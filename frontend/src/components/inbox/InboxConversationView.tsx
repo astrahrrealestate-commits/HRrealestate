@@ -1057,6 +1057,7 @@ export function InboxConversationView({
         draftPersona={isSent ? undefined : thread.draftProposal?.persona}
         detectedLanguage={thread.detectedLanguage || "Dutch (detected)"}
         channel={thread.channel}
+        recipientName={thread.senderName}
         recipientPhone={thread.senderContact}
         recipientEmail={thread.senderContact?.includes("@") ? thread.senderContact : undefined}
         subject={thread.subject}

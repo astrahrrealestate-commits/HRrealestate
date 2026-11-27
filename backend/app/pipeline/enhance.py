@@ -9,6 +9,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.context.message_origin import is_owner_authored
+from app.context.persona import load_persona
 from app.contracts import Category, Direction, Understanding
 from app.contracts.enhance import EnhancePlan
 from app.contracts.research import Finding
@@ -21,9 +22,11 @@ from app.db.models import Case, CaseLink, MessageRow, UnderstandingRow
 from app.db.models.ingestion import not_chat_only
 from app.llm.agents.doc_qa import Passage
 from app.llm.agents.enhance_planner import ENHANCE_PLANNER, enhance_planner_prompt
+from app.llm.agents.enhance_style import ENHANCE_STYLE, enhance_style_prompt
 from app.llm.calls import CallContext, is_transient, run_agent
 from app.llm.embeddings import TextEmbedder, build_embedder
-from app.pipeline import propose, redraft
+from app.pipeline import dashboard_decisions, propose, redraft
+from app.pipeline.supersede import supersede_draft
 from app.pipeline.conversation import ThreadLine
 from app.pipeline.document_qa import case_scope, strip_risky
 from app.pipeline.document_search import DocFilter
@@ -248,6 +251,55 @@ def _enrich_dossier(
     return enriched, sources_used
 
 
+def _fast_style_rewrite(
+    engine: Engine,
+    settings: Settings,
+    company_id: UUID,
+    msg: MessageRow,
+    und: Understanding,
+    pending_approval_id: UUID,
+    instruction: str,
+    current_text: str,
+    now: datetime,
+) -> EnhanceResult | None:
+    """Single fast-tier rewrite for pure style instructions (avoids rebuilding dossier + heavy proposer)."""
+    ctx = CallContext(company_id, "enhance_style", message_ids=(msg.id,))
+    prompt = enhance_style_prompt(instruction, current_text, channel=msg.channel.value)
+    try:
+        out = run_agent(engine, settings, ENHANCE_STYLE, prompt, ctx).output
+    except Exception as exc:
+        if not (isinstance(exc, EstateOSError) or is_transient(exc)):
+            raise
+        log.warning("enhance.fast_style_failed", reason=type(exc).__name__)
+        return None
+    variants = tuple(v.strip() for v in out.variants if v and v.strip())[:2]
+    if not variants:
+        return None
+    turn_key = f"enhance:{new_id()}"
+    with Session(engine) as session, session.begin():
+        propose.lock_message(session, msg.id)
+        persona = load_persona(session, company_id)
+        revision = supersede_draft(
+            session,
+            company_id,
+            pending_approval_id,
+            list(variants),
+            editor=turn_key,
+            urgency=und.urgency,
+            now=now,
+            persona=persona,
+        )
+        if revision is None:
+            return None
+        dashboard_decisions.resolve_feed(session, company_id, pending_approval_id, at=now)
+    return EnhanceResult(
+        ok=True,
+        variants=variants,
+        approval_id=revision.approval_id,
+        draft_version=revision.draft_version,
+    )
+
+
 def enhance_draft(
     engine: Engine,
     settings: Settings,
@@ -280,7 +332,25 @@ def enhance_draft(
         state = redraft.message_state(session, company_id, msg.id, now)
         if state.kind in ("busy", "held"):
             return EnhanceResult(ok=False, problem=redraft.BUSY if state.kind == "busy" else redraft.HELD)
-        base_loaded = propose.load_message(engine, msg.id, embedder=embedder)
+        msg_copy = MessageRow(
+            id=msg.id, company_id=msg.company_id, person_id=msg.person_id, channel=msg.channel,
+            direction=msg.direction, sent_at=msg.sent_at, meta=msg.meta,
+        )  # fmt: skip
+
+    clean_guidance = guidance_for(instruction).text or instruction.strip()[:400]
+    norm_instruction = " ".join(clean_guidance.lower().split())
+    if norm_instruction in _FAST_STYLE_PHRASES and current_text.strip() and state.kind == "pending" and state.pending:
+        fast_result = _fast_style_rewrite(
+            engine, settings, company_id, msg_copy, und, state.pending, clean_guidance, current_text.strip(), now
+        )
+        if fast_result is not None:
+            return fast_result
+
+    with Session(engine) as session:
+        case = session.get(Case, case_id)
+        if case is None or case.company_id != company_id:
+            return EnhanceResult(ok=False, problem="Case not found.")
+        base_loaded = propose.load_message(engine, msg_copy.id, embedder=embedder)
         if base_loaded is None:
             return EnhanceResult(ok=False, problem=redraft.NOTHING)
         # Detach scalar fields before session closes
@@ -289,12 +359,7 @@ def enhance_draft(
             primary_person_id=case.primary_person_id, state=case.state, category=case.category,
             urgency=case.urgency, summary=case.summary, brixx_ref=case.brixx_ref,
         )  # fmt: skip
-        msg_copy = MessageRow(
-            id=msg.id, company_id=msg.company_id, person_id=msg.person_id, channel=msg.channel,
-            direction=msg.direction, sent_at=msg.sent_at, meta=msg.meta,
-        )  # fmt: skip
 
-    clean_guidance = guidance_for(instruction).text or instruction.strip()[:400]
     current_variants = (current_text.strip(),) if current_text.strip() else state.current
     plan = _plan_lookups(engine, settings, base_loaded, clean_guidance, current_variants[0] if current_variants else "")
 
