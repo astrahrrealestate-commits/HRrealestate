@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -18,6 +19,7 @@ from app.db.models import (
     Approval,
     Case,
     CaseLink,
+    Company,
     MessageRow,
     Person,
     TaskRow,
@@ -26,6 +28,7 @@ from app.db.models import (
     WaitRow,
 )
 from app.db.models.ingestion import not_chat_only
+from app.pipeline import chasing
 from app.pipeline.next_actions_items import (
     OPEN_STATES,
     ActionKind,
@@ -312,28 +315,35 @@ def waiting_split(
 
     active_waits: dict[UUID, WaitRow] = {}
     for w in session.scalars(
-        select(WaitRow).where(
+        select(WaitRow)
+        .where(
             WaitRow.company_id == company_id,
             WaitRow.case_id.in_(cat_ids),
-            WaitRow.status == WaitStatus.waiting,
+            WaitRow.status.in_([WaitStatus.waiting, WaitStatus.escalated]),
         )
+        .order_by(WaitRow.expected_by, WaitRow.id)
     ).all():
         if w.case_id not in active_waits:
             active_waits[w.case_id] = w
 
-    pending_approvals = set(
-        session.scalars(
-            select(ActionRow.case_id)
-            .join(Approval, (Approval.action_id == ActionRow.id) & (Approval.company_id == company_id))
-            .where(
-                Approval.company_id == company_id,
-                Approval.status == ApprovalStatus.pending,
-                ActionRow.company_id == company_id,
-                ActionRow.case_id.in_(cat_ids),
-                ActionRow.type == ActionType.reply_draft,
-            )
-        ).all()
-    )
+    company_row = session.get(Company, company_id)
+    tz = company_row.timezone if company_row is not None else chasing.DEFAULT_TZ
+
+    pending_approvals: dict[UUID, UUID] = {}
+    for app_case_id, app_id in session.execute(
+        select(ActionRow.case_id, Approval.id)
+        .join(Approval, (Approval.action_id == ActionRow.id) & (Approval.company_id == company_id))
+        .where(
+            Approval.company_id == company_id,
+            Approval.status == ApprovalStatus.pending,
+            ActionRow.company_id == company_id,
+            ActionRow.case_id.in_(cat_ids),
+            ActionRow.type.in_([ActionType.reply_draft, ActionType.request_contractor, ActionType.escalate]),
+        )
+        .order_by(Approval.created_at.desc(), Approval.id.desc())
+    ).all():
+        if app_case_id not in pending_approvals:
+            pending_approvals[app_case_id] = app_id
 
     latest_msgs: dict[UUID, MessageRow] = {}
     for msg_cid, msg in session.execute(
@@ -362,8 +372,8 @@ def waiting_split(
                 und_by_msg[mid] = body
 
     urg_rank = {Urgency.emergency: 0, Urgency.high: 1, Urgency.normal: 2, Urgency.low: 3}
-    for_us: list[tuple[tuple[int, int, float], NextAction]] = []
-    for_other: list[tuple[tuple[int, int, float], NextAction]] = []
+    for_us: list[tuple[tuple[int, int, int, int, float], NextAction]] = []
+    for_other: list[tuple[tuple[int, int, int, float], NextAction]] = []
 
     for c in cat_cases:
         promise = open_promises.get(c.id)
@@ -371,20 +381,26 @@ def waiting_split(
         newest = latest_msgs.get(c.id)
         body = und_by_msg.get(newest.id, {}) if newest is not None else {}
         requires_reply = body.get("requires_reply", True) if body else True
-        has_draft = c.id in pending_approvals
+        approval_id = pending_approvals.get(c.id)
+        has_draft = approval_id is not None
         last_at = as_utc(newest.sent_at) if newest is not None else as_utc(c.opened_at)
         days = max(0, (ref - last_at).days)
 
         is_our_obligation = (
             promise is not None
             or c.state is CaseState.waiting_on_owner
-            or has_draft
             or (
-                c.state is CaseState.open
-                and newest is not None
-                and newest.direction is Direction.inbound
-                and not is_owner_authored(newest)
-                and requires_reply is not False
+                days >= 1
+                and (
+                    has_draft
+                    or (
+                        c.state is CaseState.open
+                        and newest is not None
+                        and newest.direction is Direction.inbound
+                        and not is_owner_authored(newest)
+                        and requires_reply is not False
+                    )
+                )
             )
         )
         is_their_obligation = not is_our_obligation and (
@@ -400,6 +416,8 @@ def waiting_split(
                 else (str(body.get("open_obligation")) if isinstance(body.get("open_obligation"), str) else None)
             )
             why_text = ob_text or (one_line(c.summary) if viewer.inbox else "") or "Awaiting our response"
+            due_at = as_utc(promise.due_at) if promise and promise.due_at else None
+            overdue_days = chasing.overdue_days_from(due_at, ref, tz) if due_at is not None else 0
             action = NextAction(
                 id=f"wait-us:{c.id}",
                 category=category,
@@ -407,19 +425,29 @@ def waiting_split(
                 title=ob_text or ("Draft ready to send" if has_draft else "Reply / follow-up needed"),
                 why=why_text,
                 urgency=c.urgency,
-                due_at=as_utc(promise.due_at) if promise and promise.due_at else None,
+                due_at=due_at,
                 case_id=c.id,
-                approval_id=None,
-                prepared=None,
+                approval_id=approval_id,
+                prepared="Draft ready to approve" if has_draft else None,
                 target_url=f"/inbox?thread={c.id}",
                 waiting_side="owner",
                 waiting_days=days,
                 obligation=ob_text,
                 has_draft=has_draft,
                 last_at=last_at,
+                overdue_days=overdue_days,
+                chase_count=0,
+                wait_status="promise" if promise is not None else None,
             )
             has_promise_priority = 0 if (promise is not None or c.state is CaseState.waiting_on_owner) else 1
-            for_us.append(((has_promise_priority, urg_rank.get(c.urgency, 2), -days), action))
+            us_key = (
+                0 if overdue_days > 0 else 1,
+                has_promise_priority,
+                -overdue_days,
+                urg_rank.get(c.urgency, 2),
+                -days,
+            )
+            for_us.append((us_key, action))
         elif is_their_obligation:
             wait_days = max(0, (ref - as_utc(wait.created_at)).days) if wait is not None else days
             ob_text = (
@@ -428,7 +456,15 @@ def waiting_split(
                 else (str(body.get("open_obligation")) if isinstance(body.get("open_obligation"), str) else None)
             )
             why_text = (ob_text if viewer.inbox or wait else "") or f"Waiting {wait_days}d for update"
-            overdue = 0 if (wait is not None and as_utc(wait.expected_by) <= ref) else 1
+            due_at = as_utc(wait.expected_by) if wait is not None else None
+            overdue_days = chasing.overdue_days_from(due_at, ref, tz) if due_at is not None else 0
+            if wait is not None and wait.status is WaitStatus.escalated:
+                w_status: Literal["waiting", "chased", "escalated", "promise"] = "escalated"
+            elif wait is not None and wait.chase_count > 0:
+                w_status = "chased"
+            else:
+                w_status = "waiting"
+            tier = 0 if w_status == "escalated" else (1 if overdue_days > 0 else 2)
             action = NextAction(
                 id=f"wait-other:{c.id}",
                 category=category,
@@ -436,18 +472,22 @@ def waiting_split(
                 title=ob_text or "Awaiting their update",
                 why=why_text,
                 urgency=c.urgency,
-                due_at=as_utc(wait.expected_by) if wait is not None else None,
+                due_at=due_at,
                 case_id=c.id,
-                approval_id=None,
-                prepared=None,
+                approval_id=approval_id,
+                prepared="Chaser draft ready" if has_draft else None,
                 target_url=f"/inbox?thread={c.id}",
                 waiting_side="third_party",
                 waiting_days=wait_days,
                 obligation=ob_text,
-                has_draft=False,
+                has_draft=has_draft,
                 last_at=last_at,
+                overdue_days=overdue_days,
+                chase_count=wait.chase_count if wait is not None else 0,
+                wait_status=w_status,
+                wait_id=wait.id if wait is not None else None,
             )
-            for_other.append(((overdue, urg_rank.get(c.urgency, 2), -wait_days), action))
+            for_other.append(((tier, -overdue_days, urg_rank.get(c.urgency, 2), -wait_days), action))
 
     for_us.sort(key=lambda pair: pair[0])
     for_other.sort(key=lambda pair: pair[0])

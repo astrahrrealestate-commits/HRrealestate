@@ -8,15 +8,28 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Engine
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.contracts import Intent, PlanStep
 from app.contracts.sourced_answer import Source
 from app.core.logging import get_logger
 from app.core.settings import Settings
+from app.llm.calls import is_transient as llm_transient
 from app.llm.page_blocks import NO_PAGE, PagePrompt
 from app.pipeline.turn_timings import TurnTimer
 
 log = get_logger("app.pipeline.concierge")
+
+
+def is_transient(exc: BaseException) -> bool:
+    """Infrastructure hiccups the calling DBOS step should retry: DB connection/pool trouble, network, provider 5xx."""
+    if bool(getattr(exc, "retryable", False)) or llm_transient(exc):
+        return True
+    if isinstance(exc, DBAPIError) and exc.connection_invalidated:
+        return True
+    return isinstance(exc, OperationalError | InterfaceError | PoolTimeoutError | OSError)
+
 
 NOT_FOUND = "I could not find that case/task"
 NOT_SHOWN = "Open that case's page first, then ask again."  # a case id outside the brief and the page facts

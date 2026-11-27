@@ -20,6 +20,10 @@ export interface ThreadRowItem {
   urgent?: boolean;
   urgency?: "emergency" | "high" | "normal" | "low";
   waitingDays?: number;
+  overdueDays?: number;
+  chaseCount?: number;
+  waitStatus?: "waiting" | "chased" | "escalated" | "promise" | string;
+  dueAt?: string | null;
   count?: number;
   isRead?: boolean;
   roleLabel?: string;
@@ -41,6 +45,7 @@ export interface ThreadRowProps {
   onDone?: (e: React.MouseEvent) => void;
   onSnooze?: (e: React.MouseEvent) => void;
   onAskAstra?: (e: React.MouseEvent) => void;
+  onChase?: (e: React.MouseEvent) => void;
   actionLabel?: string;
   className?: string;
 }
@@ -63,6 +68,7 @@ export function ThreadRow({
   onDone,
   onSnooze,
   onAskAstra,
+  onChase,
   actionLabel,
   className,
 }: ThreadRowProps) {
@@ -74,6 +80,13 @@ export function ThreadRow({
   const validDate = !isNaN(dateObj.getTime());
   const formattedTime = validDate ? formatListTime(t.lastAt || dateObj) : "";
   const isoTime = validDate ? dateObj.toISOString() : "";
+  const overdueDays = t.overdueDays ?? 0;
+  const chaseCount = t.chaseCount ?? 0;
+  const isEscalated = t.waitStatus === "escalated";
+  const dueShort =
+    t.dueAt && !isNaN(new Date(t.dueAt).getTime())
+      ? new Date(t.dueAt).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })
+      : null;
 
   return (
     <div
@@ -203,11 +216,40 @@ export function ThreadRow({
             </span>
           ) : null}
 
-          {/* Waiting days indicator */}
-          {t.urgency !== "emergency" && !t.urgent && t.urgency !== "high" && (t.waitingDays ?? 0) >= 1 && (
+          {/* Overdue / Escalated / Chasing / Waiting indicator */}
+          {isEscalated ? (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-[#E14D12]/12 text-[#E14D12] text-[11px] font-bold">
+              Escalated{overdueDays > 0 ? ` · ${overdueDays}d overdue` : ""}
+            </span>
+          ) : overdueDays > 0 ? (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-[#E14D12]/10 text-[#E14D12] text-[11px] font-semibold">
+              {overdueDays}d overdue{chaseCount > 0 ? ` · Chase ${chaseCount}/2` : ""}
+            </span>
+          ) : t.waitStatus === "promise" && dueShort ? (
+            <span className="text-[var(--accent-ink)] text-[11.5px] font-medium">
+              Promise · {dueShort}
+            </span>
+          ) : dueShort && t.status === "waiting" ? (
+            <span className="text-[var(--ink-2)] text-[11.5px] font-medium">
+              Due {dueShort}{chaseCount > 0 ? ` · Chase ${chaseCount}/2` : ""}
+            </span>
+          ) : (t.waitingDays ?? 0) >= 1 ? (
             <span className="text-[var(--accent-ink)] text-xs font-medium">
               {t.waitingDays}d waiting
             </span>
+          ) : null}
+
+          {onChase && !t.hasDraft && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChase(e);
+              }}
+              className="inline-flex items-center px-2 py-0.5 rounded-[var(--radius-ctl)] border border-[#E14D12]/35 bg-[#E14D12]/8 hover:bg-[#E14D12]/15 text-[11px] font-semibold text-[#E14D12] transition-colors cursor-pointer"
+            >
+              Draft chaser
+            </button>
           )}
 
           {actionLabel && (

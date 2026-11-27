@@ -232,6 +232,88 @@ def create_event(
     return res
 
 
+class RescheduleCalendarEventRequest(BaseModel):
+    startTime: str
+    endTime: str
+    title: str | None = None
+    location: str | None = None
+    description: str | None = None
+
+
+@router.patch("/events/{event_id}", response_model=CalendarEventResponse, dependencies=[Depends(decide_limit)])
+def reschedule_calendar_event(
+    event_id: str,
+    req: RescheduleCalendarEventRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> CalendarEventResponse:
+    """Reschedule or update an existing calendar event and sync the change to Google Calendar if already pushed."""
+    target_uuid = _parse_id(event_id.removeprefix("evt-").removeprefix("cal-"), "")
+    st = _parse_time(req.startTime)
+    et = _parse_time(req.endTime)
+    with Session(engine) as session, session.begin():
+        evt = session.scalars(
+            select(CalendarEventRow).where(
+                CalendarEventRow.id == target_uuid, CalendarEventRow.company_id == principal.company_id
+            )
+        ).first()
+        if not evt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Calendar event {event_id} not found")
+        if evt.status == "cancelled":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="event is cancelled")
+        if evt.external_event_id:
+            updates: dict[str, Any] = {
+                "start": {"dateTime": st.isoformat()},
+                "end": {"dateTime": et.isoformat()},
+            }
+            if req.title is not None:
+                updates["summary"] = req.title
+            if req.location is not None:
+                updates["location"] = req.location
+            if req.description is not None:
+                updates["description"] = req.description
+            try:
+                get_calendar_client().update_event(evt.external_event_id, updates)
+            except CalendarUnavailableError as exc:
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        evt.start_time = st
+        evt.end_time = et
+        if req.title is not None:
+            evt.title = req.title
+        if req.location is not None:
+            evt.location = req.location
+        if req.description is not None:
+            evt.description = req.description
+        return _event_response(evt)
+
+
+@router.post("/events/{event_id}/cancel", response_model=CalendarEventResponse, dependencies=[Depends(decide_limit)])
+def cancel_calendar_event(
+    event_id: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> CalendarEventResponse:
+    """Cancel a proposed or confirmed calendar event and delete it from Google Calendar if synced."""
+    target_uuid = _parse_id(event_id.removeprefix("evt-").removeprefix("cal-"), "")
+    with Session(engine) as session, session.begin():
+        evt = session.scalars(
+            select(CalendarEventRow).where(
+                CalendarEventRow.id == target_uuid, CalendarEventRow.company_id == principal.company_id
+            )
+        ).first()
+        if not evt:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Calendar event {event_id} not found")
+        if evt.status == "cancelled":
+            return _event_response(evt)
+        if evt.external_event_id:
+            try:
+                get_calendar_client().delete_event(evt.external_event_id)
+            except CalendarUnavailableError as exc:
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        evt.status = "cancelled"
+        return _event_response(evt)
+
+
 @router.post("/events/{event_id}/approve", response_model=CalendarEventResponse, dependencies=[Depends(decide_limit)])
 def approve_calendar_event(
     event_id: str,

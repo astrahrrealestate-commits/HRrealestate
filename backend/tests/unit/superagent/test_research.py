@@ -104,8 +104,9 @@ def test_tools_take_no_company_or_recipient_argument(rows: list[Any], monkeypatc
     seen: dict[str, Any] = {}
     _run(_scripted([], "hi", seen), monkeypatch)
     assert set(seen["tools"]) == {
-        "query_database", "search_communications", "search_documents", "search_web",
-        "open_message", "open_thread", "open_document", "open_person",
+        "query_database", "search_cases", "search_communications", "search_documents", "search_web",
+        "check_calendar", "check_free_busy",
+        "open_message", "open_thread", "open_document", "open_person", "open_case",
     }  # fmt: skip
     for tool in seen["tools"].values():
         props = set(tool.parameters_json_schema["properties"])

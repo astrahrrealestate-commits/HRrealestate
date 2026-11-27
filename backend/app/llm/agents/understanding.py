@@ -1,6 +1,8 @@
 """Understanding agent specification and user prompt builder."""
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from app.contracts import Channel, PromptRef, Understanding
 from app.llm.calls import AgentSpec
@@ -47,6 +49,7 @@ def understanding_prompt(
     subject: str | None = None,
     attachments: Sequence[AttachmentMeta] = (),
     sender: str | None = None,
+    sent_at: datetime | None = None,
 ) -> str:
     """The email subject and the sender are sender-controlled, so both render inside the untrusted <message> block."""
     if len(text) > MAX_UNDERSTANDING_BODY_CHARS:
@@ -54,6 +57,9 @@ def understanding_prompt(
     if subject and len(subject) > 500:
         subject = subject[:500] + "..."
     header = [f"From: {sender.strip()[:MAX_SENDER_CHARS]}"] if sender and sender.strip() else []
+    if sent_at is not None:
+        local = (sent_at if sent_at.tzinfo else sent_at.replace(tzinfo=UTC)).astimezone(ZoneInfo("Europe/Amsterdam"))
+        header.append(f"Date: {local:%Y-%m-%d (%A)}")
     if subject:
         header.append(f"Subject: {subject}")
     body = "\n".join(header) + f"\n\n{text}" if header else text

@@ -321,6 +321,13 @@ export function AskEstateOSPanel({
         superAgent.setConversationTitle(res.conversation_title);
       }
       superAgent.refreshConversations();
+      if (
+        typeof window !== "undefined" &&
+        Array.isArray(res.previewCards) &&
+        res.previewCards.some((c) => c.type === "draft_message")
+      ) {
+        window.dispatchEvent(new CustomEvent("estateos:draft-updated", { detail: { caseId: res.previewCards[0]?.caseId } }));
+      }
 
       const parsedActions: AssistantAction[] = [];
       if (res.actions && res.actions.length > 0) {
@@ -431,6 +438,9 @@ export function AskEstateOSPanel({
         throw new Error(res.message || "Approval was rejected by server.");
       }
       setSentCardIds((prev) => new Set([...prev, cardId]));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("estateos:draft-updated", { detail: { caseId: cleanId } }));
+      }
     } catch (err) {
       console.error("Failed to approve draft directly:", err);
       setSendErrorCardIds((prev) => new Set([...prev, cardId]));

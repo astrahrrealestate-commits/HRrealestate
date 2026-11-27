@@ -10,10 +10,25 @@ from sqlalchemy.orm import Session
 
 from app.context.budget import clip
 from app.contracts.person_memory import PersonMemory
+from app.core.ids import case_ref
 from app.db.enums import ExtractionStatus
-from app.db.models import AttachmentRow, Case, DocumentChunk, DocumentRow, Lease, LeaseParty, MessageRow, Person, Unit
+from app.db.models import (
+    ActionRow,
+    Approval,
+    AttachmentRow,
+    Case,
+    DocumentChunk,
+    DocumentRow,
+    Lease,
+    LeaseParty,
+    MessageRow,
+    Person,
+    Unit,
+)
+from app.db.models.finance import QuoteReview, QuoteRow
 from app.db.models.ingestion import not_chat_only
 from app.pipeline.concierge_entities import resolve_entities
+from app.pipeline.concierge_sanitize import plain_line, redact_contact
 from app.pipeline.conversation import People, line_of, load_people, new_part, quoted_lines
 from app.pipeline.document_search import DocFilter, doc_filters
 from app.pipeline.injection_scan import scan
@@ -174,3 +189,60 @@ def named_people(engine: Engine, company_id: UUID, question: str) -> tuple[tuple
     """The people a question names (id and display name), best match first."""
     with Session(engine) as session:
         return tuple((p.id, p.label) for p in resolve_entities(session, company_id, question).people)
+
+
+def open_case(session: Session, company_id: UUID, case_id: UUID) -> str | None:
+    """Open one case's full operational summary, contact, unit, pending actions/approvals, and quote reviews."""
+    case = session.scalar(select(Case).where(Case.company_id == company_id, Case.id == case_id))
+    if case is None:
+        return None
+    person = (
+        session.scalar(select(Person).where(Person.company_id == company_id, Person.id == case.primary_person_id))
+        if case.primary_person_id
+        else None
+    )
+    unit = (
+        session.scalar(select(Unit).where(Unit.company_id == company_id, Unit.id == case.unit_id))
+        if case.unit_id
+        else None
+    )
+    who = f"{person.display_name} ({person.trade or person.kind.value})" if person else "Unknown contact"
+    where = (unit.address or unit.label) if unit else "General"
+    brixx = f" | BRIXX #{case.brixx_ref}" if case.brixx_ref else ""
+    lines = [
+        f"Case #{case_ref(case.id)} | {case.category.value} | {case.state.value} | {case.urgency.value}{brixx}",
+        f"Contact: {redact_contact(plain_line(who))} | Property: {plain_line(where)}",
+        f"Opened: {case.opened_at.strftime('%Y-%m-%d %H:%M') if case.opened_at else 'unknown'}",
+        f"Summary: {redact_contact(clip(case.summary or 'No summary yet.', 1500))}",
+    ]
+    actions = session.scalars(
+        select(ActionRow)
+        .where(ActionRow.company_id == company_id, ActionRow.case_id == case.id)
+        .order_by(ActionRow.created_at.desc())
+        .limit(5)
+    ).all()
+    if actions:
+        apprs = {
+            a.action_id: a.status.value
+            for a in session.scalars(
+                select(Approval).where(
+                    Approval.company_id == company_id, Approval.action_id.in_([act.id for act in actions])
+                )
+            ).all()
+        }
+        for act in actions:
+            appr_st = apprs.get(act.id, "-")
+            lines.append(
+                f"Action: {act.type.value} | status={act.status.value} | approval={appr_st} | v{act.draft_version}"
+            )
+    reviews = session.execute(
+        select(QuoteRow.total, QuoteRow.currency, QuoteReview.verdict, QuoteReview.overcharge)
+        .join(QuoteReview, QuoteReview.quote_id == QuoteRow.id)
+        .where(QuoteRow.company_id == company_id, QuoteRow.case_id == case.id)
+        .order_by(QuoteRow.created_at.desc())
+        .limit(3)
+    ).all()
+    for total, currency, verdict, overcharge in reviews:
+        over = f", overcharge={overcharge}" if overcharge else ""
+        lines.append(f"Quote review: {currency} {total} | verdict={verdict.value}{over}")
+    return "\n".join(lines)

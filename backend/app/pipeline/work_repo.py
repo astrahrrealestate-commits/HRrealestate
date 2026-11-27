@@ -250,6 +250,60 @@ def escalate_wait(session: Session, company_id: UUID, wait_id: UUID) -> None:
     session.flush()
 
 
+def active_case_wait(
+    session: Session, company_id: UUID, case_id: UUID, party_person_id: UUID | None = None
+) -> WaitRow | None:
+    """Return the oldest open or escalated wait on `case_id` (optionally filtered by party)."""
+    stmt = select(WaitRow).where(
+        WaitRow.company_id == company_id,
+        WaitRow.case_id == case_id,
+        WaitRow.status.in_([WaitStatus.waiting, WaitStatus.escalated]),
+    )
+    if party_person_id is not None:
+        stmt = stmt.where(WaitRow.party_person_id == party_person_id)
+    return session.scalar(stmt.order_by(WaitRow.expected_by, WaitRow.id).limit(1))
+
+
+def reschedule_wait(
+    session: Session,
+    company_id: UUID,
+    wait_id: UUID,
+    *,
+    expected_by: datetime,
+    about: str | None = None,
+    reset_ladder: bool = True,
+) -> None:
+    """Move a wait to a newly agreed deadline, cancelling the old timer and re-arming `wait.due`."""
+    wait = get_wait(session, company_id, wait_id)
+    timers.cancel(session, company_id, f"wait:{wait.id}:{wait.chase_count}")
+    wait.expected_by = expected_by
+    if about is not None and about.strip():
+        wait.about = about.strip()[:300]
+    if reset_ladder:
+        wait.status = WaitStatus.waiting
+        wait.chase_count = 0
+    session.flush()
+    _schedule_due(session, wait)
+
+
+def resolve_case_waits(
+    session: Session, company_id: UUID, case_id: UUID, *, status: WaitStatus = WaitStatus.received
+) -> int:
+    """Close every open or escalated wait on `case_id` and cancel pending timers."""
+    waits = session.scalars(
+        select(WaitRow).where(
+            WaitRow.company_id == company_id,
+            WaitRow.case_id == case_id,
+            WaitRow.status.in_([WaitStatus.waiting, WaitStatus.escalated]),
+        )
+    ).all()
+    for wait in waits:
+        wait.status = status
+        timers.cancel(session, company_id, f"wait:{wait.id}:{wait.chase_count}")
+    session.flush()
+    return len(waits)
+
+
 def overdue_waits(session: Session, company_id: UUID, now: datetime) -> list[WaitRow]:
     return list(
         session.scalars(

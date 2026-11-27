@@ -104,6 +104,7 @@ def _fake_understanding(prompt: str) -> dict[str, object]:
         "waiting_side": "none" if no_reply else "owner",
         "open_obligation": None,
         "expected_days": None,
+        "expected_date": None,
         "prompt_version": "understanding/v2",
     }
 

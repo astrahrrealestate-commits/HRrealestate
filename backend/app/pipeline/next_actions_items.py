@@ -64,6 +64,10 @@ class NextAction(Contract):
     waiting_days: int | None = None
     obligation: str | None = None
     has_draft: bool = False
+    overdue_days: int = 0
+    chase_count: int = 0
+    wait_status: Literal["waiting", "chased", "escalated", "promise"] | None = None
+    wait_id: UUID | None = None
 
 
 class ActionViewer:

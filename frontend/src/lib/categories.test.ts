@@ -153,6 +153,9 @@ describe("Today Category Desk", () => {
           sender_name: "Loodgieter BV",
           waiting_side: "third_party",
           waiting_days: 3,
+          overdue_days: 1,
+          chase_count: 1,
+          wait_status: "chased",
           obligation: "Contractor to send quote Friday",
         },
       ],
@@ -167,6 +170,7 @@ describe("Today Category Desk", () => {
         onSelectUrgency: () => {},
         onSelectCategory: () => {},
         onAskAstra: () => {},
+        onChaseFollowup: () => {},
         allContent: React.createElement("div", null, "BRIXX & Calendar Only"),
         allCount: 3,
       })
@@ -174,8 +178,11 @@ describe("Today Category Desk", () => {
     expect(html).toContain('data-category="all"');
     expect(html).toContain("Emergency");
     expect(html).toContain("Urgent");
-    expect(html).toContain("Waiting for our message");
-    expect(html).toContain("Waiting for other");
+    expect(html).toContain("Commitments &amp; Chasing Radar");
+    expect(html).toContain("Owed by Us");
+    expect(html).toContain("Owed by Others");
+    expect(html).toContain("1d overdue · Chase 1/2");
+    expect(html).toContain("Draft chaser");
     expect(html).toContain("Send signed contract");
     expect(html).toContain("Contractor to send quote Friday");
 

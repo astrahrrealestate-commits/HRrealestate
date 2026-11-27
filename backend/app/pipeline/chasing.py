@@ -1,11 +1,14 @@
 """Follow-up ladder (#5), pure: when a wait is due, chase (up to `escalate_after_chases` times), then escalate."""
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from app.db.enums import WaitStatus
+
+DEFAULT_TZ = "Europe/Amsterdam"
+OVERDUE_HOUR = 9  # 09:00 local time the morning after a promised date
 
 
 class ChaseStep(StrEnum):
@@ -31,6 +34,23 @@ def add_business_days(start: datetime, days: int, tz: str) -> datetime:
             remaining -= 1
     wall = datetime.combine(day, local.timetz().replace(tzinfo=None), tzinfo=ZoneInfo(tz))
     return wall.astimezone(UTC)
+
+
+def next_morning_after(promised_date: date, tz: str = DEFAULT_TZ, hour: int = OVERDUE_HOUR) -> datetime:
+    """09:00 local time on the morning after `promised_date` (e.g. promised Tuesday -> due Wednesday 09:00)."""
+    zone = ZoneInfo(tz)
+    wall = datetime.combine(promised_date + timedelta(days=1), time(hour, 0), tzinfo=zone)
+    return wall.astimezone(UTC)
+
+
+def overdue_days_from(expected_by: datetime, now: datetime, tz: str = DEFAULT_TZ) -> int:
+    """Whole overdue days once `now >= expected_by` (returns 1 on the first overdue morning, 0 when on track)."""
+    if now < expected_by:
+        return 0
+    zone = ZoneInfo(tz)
+    due_day = expected_by.astimezone(zone).date()
+    cur_day = now.astimezone(zone).date()
+    return max(1, (cur_day - due_day).days + 1)
 
 
 def next_step(

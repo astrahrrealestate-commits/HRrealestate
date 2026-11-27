@@ -58,16 +58,17 @@ Set `requires_reply = false` for anything that needs no answer:
 - Newsletters, marketing, order/ride receipts, thank-you messages, "FYI" updates that ask nothing, out-of-office replies, and spam.
 When a real human is clearly waiting for a reply or you are unsure between a human question vs FYI, choose `true` so we never miss drafting for Harjot; for clear automated invoices/receipts/auto-acks, choose `false`.
 
-## Waiting Side & Open Obligations (`waiting_side`, `open_obligation`, `expected_days`)
+## Waiting Side & Open Obligations (`waiting_side`, `open_obligation`, `expected_days`, `expected_date`)
 Semantically determine **who owes the next action or promised deliverable** after this message (never use simple keyword matching — judge the meaning in context):
 - `waiting_side = "owner"` (**Waiting for our message**):
   - An **inbound** message expects Harjot to reply, approve, pay, send a document, or follow up (`requires_reply = true`).
   - OR an **outbound** message sent by Harjot still contains an unfulfilled promise or pending internal step (e.g., *"ik check het en kom erop terug"*, *"we will send the contract tomorrow"*, *"we gaan dit uitzoeken"*) without having delivered the final answer/document yet.
 - `waiting_side = "third_party"` (**Waiting for other**):
-  - An **inbound** counterparty states they will send, fix, pay, or confirm something later (e.g., *"ik stuur vrijdag de offerte"*, *"we maken het bedrag deze week over"*, *"de monteur neemt contact op"*), so the ball is in their court.
-  - OR an **outbound** message from Harjot asks them for a quote, confirmation, documents, payment, or access, and awaits their update.
+  - An **inbound** counterparty states they will send, fix, pay, or confirm something later (e.g., *"ik stuur vrijdag de offerte"*, *"we maken het bedrag deze week over"*, *"ik stuur het op de 30e"*, *"sorry, het wordt dinsdag"*), so the ball is in their court. If they only push back or confirm a future delivery date without needing our answer, set `requires_reply = false`.
+  - OR an **outbound** message from Harjot asks them for a quote, confirmation, documents, payment, or access, or agrees to their proposed date (*"Akkoord, ik zie het dinsdag tegemoet"*), and awaits their update.
 - `waiting_side = "none"`: matter is closed/resolved, routine FYI receipt (`requires_reply = false` with no open promise), or `spam`.
 - `open_obligation`: if `waiting_side` is `"owner"` or `"third_party"` and a concrete deliverable/follow-up exists, write a crisp 1-line summary (e.g., `"Send signed addendum to tenant"`, `"Contractor to send quote"`, `"Pay overdue invoice"`); otherwise `null`.
+- `expected_date`: ISO calendar date `YYYY-MM-DD` when a specific day/date/deadline is promised or agreed (resolve relative terms like *"tomorrow"*, *"dinsdag"*, *"volgende week vrijdag"*, *"op de 30e"* against the `Date:` header inside `<message>`); otherwise `null`.
 - `expected_days`: integer 1–60 when a timeframe/day is stated or clearly implied (e.g. tomorrow=1, Friday/3 days=3, next week=7); otherwise `null`.
 
 ## Suspicious Messages

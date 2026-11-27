@@ -32,13 +32,23 @@ from app.llm.embeddings import TextEmbedder
 from app.llm.render import data_block
 from app.llm.runtime import build_model, describe_model_error
 from app.superagent.chat import new_call, record_call
+from app.superagent.lookups import calendar_events as _calendar_events
+from app.superagent.lookups import calendar_free_busy as _calendar_free_busy
+from app.superagent.lookups import cases as _cases
 from app.superagent.lookups import database as _database
 from app.superagent.lookups import documents as _documents
 from app.superagent.lookups import messages as _messages
 from app.superagent.lookups import messages_filtered as _messages_filtered
 from app.superagent.lookups import plural as _plural
 from app.superagent.lookups import web as _web
-from app.superagent.open_tools import named_people, open_document, open_message, open_person, open_thread
+from app.superagent.open_tools import (
+    named_people,
+    open_case,
+    open_document,
+    open_message,
+    open_person,
+    open_thread,
+)
 from app.superagent.research_base import (
     AGENT_NAME,
     LOOKUP_FAILED,
@@ -149,12 +159,50 @@ def _add_search_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
         return _as_data(text)
 
     @agent.tool
-    def search_web(ctx: RunContext[SuperAgentDeps], query: str) -> str:
-        """Search public web pages (prices, rules, laws, products) for what our own data cannot answer."""
+    def search_cases(
+        ctx: RunContext[SuperAgentDeps],
+        query: str = "",
+        category: str | None = None,
+        state: str | None = None,
+    ) -> str:
+        """Search EstateOS cases across all 6 categories (maintenance, finance, legal, business, administration,
+        new_projects) by keyword, contact, property, or BRIXX ref. Optional state: 'open' or 'closed'."""
         if not ctx.deps.take_call():
             return NO_MORE_LOOKUPS
-        text, pages = _safely(_web, ctx.deps, query)
+        text, hits = _safely(
+            lambda deps, q: _cases(deps, q, category=category, state=state),
+            ctx.deps,
+            query,
+        )
+        ctx.deps.steps.append(f"Searched cases ({_plural(hits, 'match', 'matches')})")
+        return _as_data(text)
+
+    @agent.tool
+    def search_web(ctx: RunContext[SuperAgentDeps], query: str, topic: str = "general") -> str:
+        """Search public Dutch web pages for what our own data cannot answer.
+        Optional topic presets trusted sources: 'legal', 'finance', 'market', 'maintenance', or 'general'."""
+        if not ctx.deps.take_call():
+            return NO_MORE_LOOKUPS
+        text, pages = _safely(lambda deps, q: _web(deps, q, topic=topic), ctx.deps, query)
         ctx.deps.steps.append(f"Searched the web ({_plural(pages, 'page', 'pages')})")
+        return _as_data(text)
+
+    @agent.tool
+    def check_calendar(ctx: RunContext[SuperAgentDeps], days_ahead: int = 14) -> str:
+        """Check upcoming scheduled visits, meetings, and pending calendar invites from Google Calendar and EstateOS."""
+        if not ctx.deps.take_call():
+            return NO_MORE_LOOKUPS
+        text, count = _safely(lambda deps, _q: _calendar_events(deps, days_ahead=days_ahead), ctx.deps, "")
+        ctx.deps.steps.append(f"Checked calendar ({_plural(count, 'item', 'items')})")
+        return _as_data(text)
+
+    @agent.tool
+    def check_free_busy(ctx: RunContext[SuperAgentDeps], start_iso: str, end_iso: str) -> str:
+        """Check whether a specific ISO datetime window (e.g. '2026-12-01T14:00:00+01:00') is free or busy."""
+        if not ctx.deps.take_call():
+            return NO_MORE_LOOKUPS
+        text, _ = _safely(lambda deps, _q: _calendar_free_busy(deps, start_iso, end_iso), ctx.deps, "")
+        ctx.deps.steps.append("Checked calendar availability")
         return _as_data(text)
 
     @agent.tool
@@ -195,6 +243,11 @@ def _add_open_tools(agent: Agent[SuperAgentDeps, SourcedAnswer]) -> None:
             return text
         source = ctx.deps.sources.add("data", f"person {person_id}", "Directory")
         return f"reference for this: {source}\n{text}"
+
+    @agent.tool(name="open_case")
+    def _case(ctx: RunContext[SuperAgentDeps], ref: str) -> str:
+        """Read a case's full summary, category, contact, property, actions, and quote reviews by ref such as q1."""
+        return _open(ctx.deps, "a case", ctx.deps.sources.case_id(ref), open_case)
 
 
 def _finish(engine: Engine, row: ModelCall, started: float, deps: SuperAgentDeps, usage: RunUsage | None) -> None:

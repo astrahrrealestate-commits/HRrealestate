@@ -11,6 +11,10 @@ _FROM_CARD = {
     "contractor": "contractor",
     "actionId": "last_action_id",
     "channel": "channel",
+    "category": "category",
+    "senderRole": "sender_role",
+    "personId": "person_id",
+    "threadKey": "thread_key",
 }
 # cards about the whole company (a proposed standing rule), never about what this conversation discusses
 _NOT_A_FOCUS = frozenset({"memory_item"})

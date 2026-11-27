@@ -133,15 +133,29 @@ def _trades(question: str) -> frozenset[str]:
 
 def _people(session: Session, company_id: UUID, question: str, words: list[str], limit: int) -> list[Person]:
     trades = _trades(question)
+    q_low = fold(question)
     scored: list[tuple[float, Person]] = []
     for person in session.scalars(select(Person).where(Person.company_id == company_id)):
         score = _overlap(_words(person.display_name), words)
-        if person.kind is PersonKind.contractor and person.trade and normalise_item_key(person.trade) in trades:
-            score += TRADE
+        if person.trade:
+            t_low = fold(person.trade)
+            if (person.kind is PersonKind.contractor and normalise_item_key(person.trade) in trades) or (
+                t_low and (t_low in q_low or _overlap(_words(person.trade), words))
+            ):
+                score += TRADE
+        if person.brixx_ref and fold(person.brixx_ref) in q_low:
+            score += FULL
         if score:
             scored.append((score, person))
-    # The directory first: an `other` person is anyone who once mailed, under a name they chose themselves.
-    scored.sort(key=lambda p: (p[1].kind is PersonKind.other, -p[0], p[1].valid_to is not None, p[1].id))
+    # Directory contacts & classified roles first; unclassified `other` with no trade last.
+    scored.sort(
+        key=lambda p: (
+            p[1].kind is PersonKind.other and not p[1].trade,
+            -p[0],
+            p[1].valid_to is not None,
+            p[1].id,
+        )
+    )
     return [p for _, p in scored[:limit]]
 
 
@@ -179,7 +193,9 @@ def _cases(
 
 
 def _kind(person: Person) -> str:
-    return "unverified sender" if person.kind is PersonKind.other else person.kind.value
+    if person.kind is PersonKind.other:
+        return person.trade.strip().lower() if person.trade and person.trade.strip() else "unverified sender"
+    return person.kind.value
 
 
 def resolve_entities(session: Session, company_id: UUID, question: str, limit: int = LIMIT) -> Entities:

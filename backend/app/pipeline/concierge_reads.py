@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import asdict
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.contracts import Channel, PlanStep
 from app.core import rent_data
-from app.db.models import MessageRow
+from app.db.enums import TaskStatus, WaitStatus
+from app.db.models import MessageRow, TaskRow, WaitRow
 from app.db.models.ingestion import not_chat_only
 from app.llm.agents.briefing import fallback_briefing, render_text
 from app.llm.agents.owner_qa import FALLBACK_ANSWER
-from app.pipeline import briefing, case_repo, owner_commands, read_approvals, read_work, work_repo
+from app.pipeline import briefing, case_repo, chasing, owner_commands, read_approvals, read_work, work_repo
 from app.pipeline.concierge_base import NEED_DETAIL, Ctx, StepResult, failed, log
 from app.pipeline.concierge_reply import screen_reply
 from app.pipeline.concierge_sanitize import normalise_query, safe_question
@@ -101,20 +102,86 @@ def list_tasks(ctx: Ctx, step: PlanStep) -> StepResult:
 
 def list_waiting(ctx: Ctx, step: PlanStep) -> StepResult:
     with Session(ctx.engine) as session:
-        waits = read_work.open_waits(session, ctx.company_id)
+        tz = read_work.get_company(session, ctx.company_id).timezone
+        waits = list(
+            session.scalars(
+                select(WaitRow)
+                .where(
+                    WaitRow.company_id == ctx.company_id,
+                    WaitRow.status.in_([WaitStatus.waiting, WaitStatus.escalated]),
+                )
+                .order_by(WaitRow.expected_by, WaitRow.id)
+                .limit(read_work.MAX_WAITS)
+            ).all()
+        )
+        promises = list(
+            session.scalars(
+                select(TaskRow)
+                .where(
+                    TaskRow.company_id == ctx.company_id,
+                    TaskRow.assignee == "owner",
+                    TaskRow.source.in_(["promise", "reminder"]),
+                    TaskRow.status.in_([TaskStatus.open, TaskStatus.snoozed]),
+                )
+                .order_by(TaskRow.due_at.nulls_last(), TaskRow.id)
+                .limit(MAX_LISTED)
+            ).all()
+        )
         rows = [
             {
                 "id": str(w.id),
                 "case_id": str(w.case_id),
                 "about": w.about,
+                "status": w.status.value,
                 "expected_by": w.expected_by.isoformat(),
+                "overdue_days": chasing.overdue_days_from(
+                    w.expected_by if w.expected_by.tzinfo else w.expected_by.replace(tzinfo=UTC), ctx.now, tz
+                ),
                 "chase_count": w.chase_count,
             }
             for w in waits
         ]
-    lines = [f"{i}. {w.about}, {w.chase_count} reminders sent" for i, w in enumerate(waits[:MAX_LISTED], 1)]
-    summary = "Waiting on:\n" + "\n".join(lines) if lines else "Not waiting on anyone."
-    return StepResult(step.intent, True, summary, {"waits": rows}, "waiting")
+        promise_rows = [
+            {
+                "id": str(p.id),
+                "case_id": str(p.case_id) if p.case_id else None,
+                "title": p.title,
+                "due_at": p.due_at.isoformat() if p.due_at else None,
+                "overdue_days": (
+                    chasing.overdue_days_from(
+                        p.due_at if p.due_at.tzinfo else p.due_at.replace(tzinfo=UTC), ctx.now, tz
+                    )
+                    if p.due_at
+                    else 0
+                ),
+            }
+            for p in promises
+        ]
+
+    wait_lines: list[str] = []
+    for i, (w, r) in enumerate(zip(waits[:MAX_LISTED], rows[:MAX_LISTED], strict=True), 1):
+        tags: list[str] = []
+        od = int(str(r["overdue_days"]))
+        if w.status is WaitStatus.escalated:
+            tags.append("ESCALATED")
+        if od > 0:
+            tags.append(f"{od}d overdue")
+        tags.append(f"{w.chase_count} reminders sent")
+        wait_lines.append(f"{i}. {w.about} ({', '.join(tags)})")
+
+    promise_lines: list[str] = []
+    for i, (p, pr) in enumerate(zip(promises[:MAX_LISTED], promise_rows[:MAX_LISTED], strict=True), 1):
+        od = int(str(pr["overdue_days"]))
+        tag = f"{od}d overdue" if od > 0 else "open promise"
+        promise_lines.append(f"{i}. {p.title} ({tag})")
+
+    parts: list[str] = []
+    if wait_lines:
+        parts.append("Owed by Others (waiting):\n" + "\n".join(wait_lines))
+    if promise_lines:
+        parts.append("Owed by Us (promises):\n" + "\n".join(promise_lines))
+    summary = "\n\n".join(parts) if parts else "Not waiting on anyone."
+    return StepResult(step.intent, True, summary, {"waits": rows, "promises": promise_rows}, "waiting")
 
 
 def case_status(ctx: Ctx, step: PlanStep) -> StepResult:
@@ -198,7 +265,7 @@ def search_inbox(ctx: Ctx, step: PlanStep) -> StepResult:
                     "chunk_id": str(h.chunk_id),
                     "thread_key": encode_thread_key(Channel(h.channel), h.thread_ref),
                     "sent_at": h.last_sent_at.isoformat(),
-                    "sender": h.person_name or "Tenant",
+                    "sender": h.person_name or "Contact",
                     "property": h.unit_address or "",
                     "snippet": " ".join(h.text.split())[:240],
                     "score": round(h.score, 4),

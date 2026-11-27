@@ -22,9 +22,7 @@ _EMAIL = re.compile(r"\b(e-?mail|gmail|mail)\b", re.IGNORECASE)
 
 
 def rewrite_answer(query: str) -> str | None:
-    """The honest answer to "make it shorter" / "translate that", None for anything else."""
-    if _REWRITE.search(query) and _ABOUT_A_DRAFT.search(query) and not re.search(r"\bword\b", query, re.IGNORECASE):
-        return REWRITE_UNSUPPORTED_ANSWER
+    """Rewriting/translating drafts is now supported via Super Agent (`draft_reply` / `enhance_draft`)."""
     return None
 
 

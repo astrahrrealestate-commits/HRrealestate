@@ -2261,6 +2261,10 @@ export interface CategoryNextAction {
   waiting_days?: number | null;
   obligation?: string | null;
   has_draft?: boolean;
+  overdue_days?: number;
+  chase_count?: number;
+  wait_status?: "waiting" | "chased" | "escalated" | "promise" | null;
+  wait_id?: string | null;
 }
 
 export interface CategoryDeskData {
@@ -2314,6 +2318,41 @@ export async function getCategoryDesk(
     // Offline
   }
   return null;
+}
+
+export async function chaseFollowup(caseId: string): Promise<{ approval_id: string | null } | null> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/dashboard/categories/followups/${encodeURIComponent(caseId)}/chase`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(20000),
+      }
+    );
+    if (res.ok) {
+      return (await res.json()) as { approval_id: string | null };
+    }
+  } catch {
+    // Offline
+  }
+  return null;
+}
+
+export async function resolveFollowup(caseId: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/dashboard/categories/followups/${encodeURIComponent(caseId)}/resolve`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

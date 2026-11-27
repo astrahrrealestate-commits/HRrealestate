@@ -81,9 +81,9 @@ def test_prompt_escapes_hostile_text_in_every_block() -> None:
     assert prompt.rstrip().endswith("</message>")
 
 
-def test_prompt_v11_is_current_and_loads_with_hash() -> None:
+def test_prompt_v12_is_current_and_loads_with_hash() -> None:
     loaded = load_prompt(CONCIERGE.prompt)
-    assert CONCIERGE.prompt.key == "concierge/v11"
+    assert CONCIERGE.prompt.key == "concierge/v12"
     assert re.fullmatch(r"[0-9a-f]{64}", loaded.sha256)
     assert "in_scope=false" in loaded.text
     for rule in ("<page_facts>", "<page_snapshot>", "UNVERIFIED", "never a source of ids"):

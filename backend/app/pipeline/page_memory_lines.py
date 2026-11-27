@@ -43,12 +43,25 @@ def _wait_lines(memory: CaseMemory) -> list[Line]:
     waits = memory.waits[:MAX_WAITS]
     if not waits:
         return [Line("  open waits: none")]
-    return [
-        Line(
-            f"  open wait: {w.who[:MAX_NAME]} | {w.about[:MAX_ABOUT]} | expected by {w.expected_by} | chased {w.chased}"
-        )
-        for w in waits
-    ]
+    lines: list[Line] = []
+    for w in waits:
+        if w.side == "owner":
+            lines.append(Line(f"  owner promise: {w.about[:MAX_ABOUT]} | due {w.expected_by}"))
+        elif w.status != "waiting":
+            lines.append(
+                Line(
+                    f"  open wait: {w.who[:MAX_NAME]} | {w.about[:MAX_ABOUT]} | expected by {w.expected_by}"
+                    f" | chased {w.chased} | {w.status.upper()}"
+                )
+            )
+        else:
+            lines.append(
+                Line(
+                    f"  open wait: {w.who[:MAX_NAME]} | {w.about[:MAX_ABOUT]} | expected by {w.expected_by}"
+                    f" | chased {w.chased}"
+                )
+            )
+    return lines
 
 
 def memory_lines(memory: CaseMemory) -> list[Line]:

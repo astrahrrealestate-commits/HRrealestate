@@ -55,6 +55,7 @@ def test_understanding_contract_defaults_pre_v6_rows_and_keeps_strict_schema() -
     assert parsed.waiting_side is WaitingSide.none
     assert parsed.open_obligation is None
     assert parsed.expected_days is None
+    assert parsed.expected_date is None
 
     old_reply = {**old_v5, "requires_reply": True}
     assert Understanding.model_validate(old_reply).waiting_side is WaitingSide.owner
@@ -62,6 +63,7 @@ def test_understanding_contract_defaults_pre_v6_rows_and_keeps_strict_schema() -
     assert "waiting_side" in schema["required"]
     assert "open_obligation" in schema["required"]
     assert "expected_days" in schema["required"]
+    assert "expected_date" in schema["required"]
 
 
 def test_proposer_v10_combines_m13_hierarchy_and_vastgoed_playbooks() -> None:
