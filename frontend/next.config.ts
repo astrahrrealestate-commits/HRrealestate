@@ -31,24 +31,26 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     const backendHost = process.env.INTERNAL_BACKEND_URL || "http://127.0.0.1:8000";
-    return [
-      {
-        source: "/health/:path*",
-        destination: `${backendHost}/health/:path*`,
-      },
-      {
-        source: "/api/:path*",
-        destination: `${backendHost}/api/:path*`,
-      },
-      {
-        source: "/messages",
-        destination: "/inbox",
-      },
-      {
-        source: "/messages/:path*",
-        destination: "/inbox/:path*",
-      },
-    ];
+    return {
+      afterFiles: [
+        {
+          source: "/health/:path*",
+          destination: `${backendHost}/health/:path*`,
+        },
+        {
+          source: "/api/:path*",
+          destination: `${backendHost}/api/:path*`,
+        },
+        {
+          source: "/messages",
+          destination: "/inbox",
+        },
+        {
+          source: "/messages/:path*",
+          destination: "/inbox/:path*",
+        },
+      ],
+    };
   },
 };
 

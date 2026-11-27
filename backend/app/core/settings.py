@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     # Model for the Super Agent's concierge planner when it should differ from `llm_model` (e.g. a cheap Gemini Flash
     # for intent routing); empty = use `llm_model`.
     concierge_model: str = ""
-    # Astra's research must answer within this. The browser gives up at 55 s (`askAgent`), the load balancer at its idle
-    # timeout: raise all three together (90 s here needs 120 s there).
-    super_agent_deadline_sec: float = 35.0
+    # Astra's research must answer within this. The browser gives up at 300 s (`askAgent`), the load balancer at its
+    # idle timeout: raise all together.
+    super_agent_deadline_sec: float = 270.0
     # Quality tier (M13, app.llm.tiers): proposer, draft research, Astra's research loop and person memory run on this
     # model with reasoning `high`; empty = `llm_model`. Gemini bills thinking as output, hence the larger caps.
     llm_quality_model: str = ""
