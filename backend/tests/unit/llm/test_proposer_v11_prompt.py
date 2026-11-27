@@ -47,3 +47,10 @@ def test_v11_uses_attachments_and_never_asks_for_a_file_already_sent() -> None:
     v11 = _v("v11")
     assert "<attachment_text>" in v11
     assert "<unread_attachments>" in v11
+
+
+def test_v11_checks_each_variant_before_it_returns() -> None:
+    section = _v("v11").split("## Before you return", 1)[1].split("\n## ", 1)[0]
+    assert "next concrete step" in section
+    assert "liability" in section
+    assert "outcome" in section

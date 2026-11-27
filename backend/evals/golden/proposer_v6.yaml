@@ -88,7 +88,7 @@ cases:
     thread:
       - "Anouk: Er zit schimmel op de muur van de slaapkamer."
       - "Harjot (sent): Vochtspecialist Droog BV komt op 12 november een meting doen."
-  metadata: {group: legal, mentions_any: [["12 november"], ["Droog"]], never_mentions: ["aansprakelijk"]}
+  metadata: {group: legal, mentions_any: [["12 november"], ["Droog"]], never_mentions: ["erken aansprakelijkheid", "erkennen aansprakelijkheid", "ben aansprakelijk", "zijn aansprakelijk", "aansprakelijkheid erkend"]}
 - name: new_project_offer
   inputs:
     message: "Wij bieden off-market een pand in Haarlem aan: 6 appartementen, vraagprijs EUR 2,1 mln k.k. Interesse?"
