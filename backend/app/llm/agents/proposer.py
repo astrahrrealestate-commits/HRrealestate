@@ -177,11 +177,11 @@ MAX_CURRENT_VARIANT = 1500
 
 
 def proposer_spec(ctx: ProposerContext) -> AgentSpec[Proposal]:
-    """v12 whenever a dossier is given (every pipeline proposal and owner redraft); v4 whenever the owner's
+    """v13 whenever a dossier is given (every pipeline proposal and owner redraft); v4 whenever the owner's
     persona is given; otherwise v2 only for an owner-requested draft (guidance or a draft to
     replace), v3 when the case's own documents are in view (ADR 0008), v1 for everything else."""
     if ctx.dossier:
-        return PROPOSER_V12  # beat v11 on gemini-3.8-flash: hard 0.94 vs 0.89, judge 0.78 vs 0.61 (2026-11-27)
+        return PROPOSER_V13  # >= v12 on the tighter golden set: hard 0.95 vs 0.89, judge 0.84 vs 0.84 (2026-11-27)
     if ctx.persona is not None:
         return PROPOSER_PERSONA
     if ctx.guided:
