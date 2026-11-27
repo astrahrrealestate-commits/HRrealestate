@@ -87,6 +87,19 @@ def looks_like_id_text(text: str) -> bool:
     return bool(_ID_WORDS.search(head) and _ID_FIELDS.search(head))
 
 
+_FINANCE = re.compile(
+    r"loonstrook|salarisstrook|salarisspecificatie|loonspecificatie|loonheffing|brutoloon|nettoloon|payslip|"
+    r"pay slip|rekeningafschrift|bankafschrift|bank statement|beginsaldo|eindsaldo|jaaropgaaf|werkgeversverklaring",
+    re.IGNORECASE,
+)
+
+
+def looks_like_finance_text(text: str) -> bool:
+    """Text that reads like a payslip, employer statement or bank statement: a tenant's income papers, never draft
+    context (M13, BRIXX documents). Words, not names: these papers often carry a neutral title."""
+    return bool(_FINANCE.search(text[:20_000]))
+
+
 def slug(text: str, limit: int = 40) -> str:
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     cut = re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")[:limit].strip("-")

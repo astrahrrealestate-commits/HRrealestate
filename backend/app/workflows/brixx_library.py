@@ -11,13 +11,21 @@ from sqlalchemy import Engine, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
+from app.core.errors import BudgetExceededError
 from app.core.logging import get_logger
+from app.core.settings import Settings
 from app.db.enums import BrixxDocumentStatus
 from app.db.models import DocumentRow
 from app.db.models.brixx import BrixxDocument
 from app.directory.brixx.document_owners import document_owners
 from app.llm.embeddings import TextEmbedder
-from app.pipeline.brixx_library import BrixxDocInput, add_brixx_document
+from app.pipeline.brixx_library import (
+    BrixxDocInput,
+    LibraryReader,
+    ScanWaitsError,
+    VisionDeferredError,
+    add_brixx_document,
+)
 from app.pipeline.document_embed import embed_chunks
 from app.storage.extract import TextExtractor
 from app.storage.ports import ObjectStorage
@@ -46,13 +54,14 @@ def _input(engine: Engine, company_id: UUID, row_id: UUID) -> BrixxDocInput | No
 
 def index_brixx_document(
     engine: Engine, storage: ObjectStorage, extractor: TextExtractor, embedder: TextEmbedder | None, company_id: UUID,
-    row_id: UUID,
+    row_id: UUID, settings: Settings, *, vision: bool = True,
 ) -> bool:  # fmt: skip
-    """Whether this stored version got a library row now."""
+    """Whether this stored version got a library row now. A scan read through vision may raise `BudgetExceededError`
+    or `ScanWaitsError` (with `vision` off, or a failed read): nothing is written, a later backlog run reads it."""
     d = _input(engine, company_id, row_id)
     if d is None:
         return False
-    status = add_brixx_document(engine, storage, extractor, company_id, d)
+    status = add_brixx_document(LibraryReader(engine, storage, extractor, settings, vision), company_id, d)
     if status is None:
         return False
     if embedder is not None:
@@ -64,20 +73,23 @@ def index_brixx_document(
 
 
 def unindexed(engine: Engine, company_id: UUID, limit: int = BACKLOG_PER_RUN) -> list[UUID]:
-    """The newest stored version of each document, where it has no library row yet."""
+    """The newest stored version of each document, where it has no library row yet; failed scans last."""
     with Session(engine) as session:
         indexed = select(DocumentRow.brixx_document_id).where(
             DocumentRow.company_id == company_id, DocumentRow.brixx_document_id.is_not(None)
         )
         newest = (  # UUIDv7 ids: the highest id is the newest version of each document
-            select(BrixxDocument.id)
+            select(BrixxDocument.id, BrixxDocument.ocr_attempts)
             .ext(distinct_on(BrixxDocument.document_id))
             .where(BrixxDocument.company_id == company_id, BrixxDocument.status == BrixxDocumentStatus.stored)
             .order_by(BrixxDocument.document_id, BrixxDocument.id.desc())
             .subquery()
         )
         rows = session.scalars(
-            select(newest.c.id).where(newest.c.id.not_in(indexed)).order_by(newest.c.id).limit(limit)
+            select(newest.c.id)
+            .where(newest.c.id.not_in(indexed))
+            .order_by(newest.c.ocr_attempts, newest.c.id)  # a scan whose read failed goes to the back
+            .limit(limit)
         )
         return list(rows)
 
@@ -101,13 +113,19 @@ def unindexed_version(engine: Engine, company_id: UUID, document_id: int) -> UUI
 
 def index_backlog(
     engine: Engine, storage: ObjectStorage, extractor: TextExtractor, embedder: TextEmbedder | None, company_id: UUID,
-    limit: int = BACKLOG_PER_RUN,
+    settings: Settings, limit: int = BACKLOG_PER_RUN,
 ) -> int:  # fmt: skip
-    """Index up to `limit` stored versions; one broken file never stops the rest."""
-    done = 0
+    """Index up to `limit` stored versions. One broken file never stops the rest; a spent budget or a failed vision read
+    stops vision for the rest of the run, while text documents behind the waiting scans are still indexed."""
+    done, vision = 0, True
     for row_id in unindexed(engine, company_id, limit):
         try:
-            done += index_brixx_document(engine, storage, extractor, None, company_id, row_id)
+            done += index_brixx_document(engine, storage, extractor, None, company_id, row_id, settings, vision=vision)
+        except (BudgetExceededError, VisionDeferredError) as exc:
+            log.info("brixx_library.vision_paused", company_id=str(company_id), reason=type(exc).__name__)
+            vision = False
+        except ScanWaitsError:
+            continue
         except Exception as exc:
             log.warning("brixx_library.index_failed", row_id=str(row_id), error_type=type(exc).__name__)
     if done and embedder is not None:

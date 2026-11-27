@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from app.core.settings import Settings
-from app.llm.budget import CONCIERGE_PURPOSE, OWNER_QA_PURPOSE, Usage, exceeded
+from app.llm.budget import BRIXX_OCR_PURPOSE, CONCIERGE_PURPOSE, OWNER_QA_PURPOSE, Usage, exceeded
 
 ZERO = Decimal(0)
 
@@ -45,3 +45,12 @@ def test_concierge_caps_apply_only_to_concierge() -> None:
     assert exceeded(s, CONCIERGE_PURPOSE, _usage(purpose_spend_day=Decimal(1))) == "concierge_daily_budget"
     assert exceeded(s, OWNER_QA_PURPOSE, _usage(purpose_calls_day=2)) is None
     assert exceeded(_settings(), CONCIERGE_PURPOSE, _usage(purpose_calls_day=99)) is None
+
+
+def test_brixx_scans_have_their_own_daily_cap_by_default() -> None:
+    capped = _settings()
+    assert capped.brixx_ocr_daily_cap is not None  # a backlog of scans never spends the mail pipeline's budget
+    assert exceeded(capped, BRIXX_OCR_PURPOSE, _usage(purpose_calls_day=capped.brixx_ocr_daily_cap)) == (
+        "brixx_ocr_daily_calls"
+    )
+    assert exceeded(capped, "doc_ocr", _usage(purpose_calls_day=capped.brixx_ocr_daily_cap)) is None

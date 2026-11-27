@@ -540,4 +540,3 @@ def test_older_mail_never_brings_an_unknown_senders_words(
         migrated_engine, cid, "Waar blijft mijn waarborgsom?", sender=ANOUK, person_id=anouk, case_id=case
     )
     assert "VREEMDE-TEKST" not in _text(_build(migrated_engine, cid, current))
->>>>>>> hrrealestate/m13-a

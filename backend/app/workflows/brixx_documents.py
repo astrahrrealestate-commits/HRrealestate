@@ -20,6 +20,7 @@ from dbos import DBOS, SetWorkflowID
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.core.settings import get_settings
 from app.core.workflow_names import BRIXX_DOWNLOAD_DOCUMENT, brixx_document_workflow_id
 from app.db.enums import BrixxDocumentStatus
 from app.directory.brixx.document_candidates import candidates_query
@@ -27,6 +28,7 @@ from app.directory.brixx.document_state import claim_versions, record_unstored
 from app.directory.brixx.documents import download_version
 from app.directory.brixx.schema import build_table
 from app.ingestion.process import is_transient
+from app.pipeline.brixx_library import ScanWaitsError
 from app.workflows import queues
 from app.workflows.brixx_common import BRIXX_RETRY, FAILED, brixx_retryable, error_name, info_from_json
 from app.workflows.brixx_library import index_backlog, index_brixx_document, unindexed_version
@@ -90,13 +92,20 @@ def index_document_step(company_id: str, document_id: int) -> bool:
     newest = unindexed_version(get_engine(), cid, document_id)
     if newest is None:
         return False
-    return index_brixx_document(get_engine(), get_deps().storage, get_extractor(), get_embedder(), cid, newest)
+    storage, settings = get_deps().storage, get_settings()
+    try:  # a scan waits for the backlog step: a download never holds its queue slot for a vision call
+        return index_brixx_document(
+            get_engine(), storage, get_extractor(), get_embedder(), cid, newest, settings, vision=False
+        )
+    except ScanWaitsError:
+        return False
 
 
 @DBOS.step(name="brixx.index_backlog")  # no retries: the next sync picks the backlog up
 def index_backlog_step(company_id: str) -> int:
     """Stored documents not in the library yet, a bounded batch per sync (the files downloaded before M13 too)."""
-    return index_backlog(get_engine(), get_deps().storage, get_extractor(), get_embedder(), UUID(company_id))
+    cid, storage = UUID(company_id), get_deps().storage
+    return index_backlog(get_engine(), storage, get_extractor(), get_embedder(), cid, get_settings())
 
 
 @DBOS.workflow(name=BRIXX_DOWNLOAD_DOCUMENT)

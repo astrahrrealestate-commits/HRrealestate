@@ -61,6 +61,9 @@ the architectural invariants in [CLAUDE.md](../../CLAUDE.md). A **blocker** fail
 **nit** (hardening or clarity).
 
 ## Known gaps (2026-11-09; remove an item when it is fixed)
+- M13 BRIXX library (2026-11-27): health papers and income papers that match neither the label/title filter nor the
+  payslip/bank-statement words are read and filed like any document. Erasure deletes BRIXX documents linked to the
+  person; a unit- or lease-only document that names them (an inspection report) keeps its chunks, as attachments do.
 - M13 lane B (2026-11-26, needs a decision): a mailbox purge deletes the actions, approvals and revisions of replies
   that were already sent; `sends` stay with `action_id` NULL, so what Harjot approved, and when, is then only in the
   RDS snapshot taken before the purge. Keep that snapshot, or archive sent actions' approvals first (a migration).
@@ -119,8 +122,12 @@ Closed on 2026-11-26 (M13):
   and health papers (by BRIXX label or title) and text that reads like an identity document are never read; a
   document of a relatie erased under GDPR is never read; links follow BRIXX's own links (relatie, contract and its
   lease parties, unit, building), so a tenant's dossier sees their own papers and contract through the existing case
-  scope and never another tenant's; `erase_person` deletes the person's BRIXX library documents. Scans are not read
-  (no OCR on this path).
+  scope and never another tenant's; `erase_person` deletes the person's BRIXX library documents. Scans go through the
+  `doc_ocr` vision agent (only when `doc_read_content` is on; purpose `brixx_ocr` with its own daily cap,
+  `BRIXX_OCR_DAILY_CAP`, default 100, so a backlog never spends the mail pipeline's budget), whose `model_calls` row
+  keeps only the transcript's size. Only the backlog step reads scans; a spent cap or a failed read pauses vision for
+  the run, and a version is given up after three failed reads. Text (OCR'd or not) that reads like an identity
+  document, a payslip or a bank statement is skipped before any chunk is written.
 - Accepted (M13): a forged `From: <owner address>` mail linked to a case shows in that case's dossier as "Harjot (copy
   in the mailbox, not verified)"; it can never approve, send or become a stored commitment. `POST
   /api/v1/documents/{document_id}/reference` (T12) is the sole writer of `documents.is_reference`, gated by an admin

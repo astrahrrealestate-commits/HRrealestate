@@ -64,10 +64,20 @@ class ReadInput:
     case_summary: str | None
 
 
-def _ocr(engine: Engine, settings: Settings, data: bytes, row: AttachmentRow, media_type: str) -> str:
+def can_ocr(settings: Settings, media_type: str) -> bool:
+    return settings.doc_read_content and media_type in _VISION_TYPES
+
+
+def ocr_scan(engine: Engine, settings: Settings, company_id: UUID, data: bytes, media_type: str,
+             message_ids: tuple[UUID, ...] = (), purpose: str = "doc_ocr") -> str:  # fmt: skip
+    """The text vision reads off a scan or photo. `model_calls` keeps only its size (the agent redacts its output)."""
     content: list[UserContent] = [_OCR_INSTRUCTION, BinaryContent(data=data, media_type=media_type)]
-    ctx = CallContext(row.company_id, "doc_ocr", message_ids=(row.message_id,))  # a purge finds the call by its mail
+    ctx = CallContext(company_id, purpose, message_ids=message_ids)  # a purge finds the call by its mail
     return run_agent(engine, settings, DOC_OCR, content, ctx).output.text.replace("\x00", "").strip()
+
+
+def _ocr(engine: Engine, settings: Settings, data: bytes, row: AttachmentRow, media_type: str) -> str:
+    return ocr_scan(engine, settings, row.company_id, data, media_type, (row.message_id,))
 
 
 def _save(engine: Engine, company_id: UUID, attachment_id: UUID, ex: Extraction, text: str | None) -> None:

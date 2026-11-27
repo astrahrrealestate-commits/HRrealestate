@@ -99,7 +99,9 @@ business. Prompts, now much larger, stayed in `model_calls` after a person was e
 17. **BRIXX documents in the document library (migration 0061).** A library document has exactly one source: a mail
     attachment or a stored BRIXX document version (`documents.attachment_id` nullable, `documents.brixx_document_id`,
     CHECK one source). After each download, and as a bounded backlog step on every BRIXX sync, the newest stored
-    version is read (no OCR), chunked and linked to its people (relatie, and everyone on the contract's lease), lease
+    version is read (scans through the same `doc_ocr` vision agent as attachments, when document reading is on, in the
+    backlog step only, purpose `brixx_ocr` under its own daily cap; a spent cap or a failed read writes no row and pauses
+    vision for the run, three failed reads give the version up; migration 0062), chunked and linked to its people (relatie, and everyone on the contract's lease), lease
     and units, so a tenant's BRIXX lease reaches their dossier through the case scope and Astra's search. Never read:
     identity, income, bank and health papers by BRIXX's label or title, text that reads like an identity document, and
     documents of a relatie erased under GDPR; each gets a `skipped` row so it is never retried. A newer version

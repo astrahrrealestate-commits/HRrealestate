@@ -44,6 +44,7 @@ from app.db.models import (
     Translation,
 )
 from app.pipeline.gdpr_calls import erase_model_calls
+from app.pipeline.gdpr_derived import erase_derived
 from app.pipeline.gdpr_documents import erase_brixx_documents
 
 log = get_logger(__name__)
@@ -60,6 +61,7 @@ class ErasureReport:
     person_anonymized: bool
     brixx_rows_purged: int
     calls_blanked: int = 0
+    turns_blanked: int = 0
 
 
 def _delete_translations(session: Session, company_id: UUID, msg_ids: list[UUID]) -> None:
@@ -114,6 +116,7 @@ def erase_person(
     _delete_ticket_edits(session, company_id, person_id)
     calls_blanked = erase_model_calls(session, company_id, person_id, msg_ids)  # needs the text: before redaction
     erase_brixx_documents(session, company_id, person_id)  # their BRIXX papers leave the document library (M13)
+    turns_blanked = erase_derived(session, company_id, msg_ids)  # understandings, attachment text, Astra turns
 
     # 2. Redact message texts and identities (their cached English copies go first: they are found by the text)
     messages_redacted = 0
@@ -239,6 +242,7 @@ def erase_person(
         person_anonymized=person_anonymized,
         brixx_rows_purged=brixx_rows_purged,
         calls_blanked=calls_blanked,
+        turns_blanked=turns_blanked,
     )
     log.info(
         "gdpr.person_erased",
@@ -248,5 +252,6 @@ def erase_person(
         messages_redacted=messages_redacted,
         brixx_rows_purged=brixx_rows_purged,
         calls_blanked=calls_blanked,
+        turns_blanked=turns_blanked,
     )
     return report

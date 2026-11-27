@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
+from app.core.settings import Settings
 from app.db.enums import BrixxDocumentStatus, DocLinkKind, DocumentStatus, ExtractionStatus, PersonKind
 from app.db.models import Company, DocumentChunk, DocumentLink, DocumentRow, Lease, LeaseParty, Person, Unit
 from app.db.models.brixx import BrixxDocument
@@ -40,6 +41,7 @@ class World:
     anouk: UUID
     bram: UUID
     storage: MemoryStorage
+    settings: Settings
 
 
 def _tenant(s: Session, cid: UUID, ref: str, name: str, unit_ref: str, contract: str) -> UUID:
@@ -68,7 +70,7 @@ def _store(s: Session, storage: MemoryStorage, cid: UUID, document_id: int, data
 
 
 @pytest.fixture
-def world(migrated_engine: Engine, committed_company: Company) -> World:
+def world(migrated_engine: Engine, committed_company: Company, test_settings: Settings) -> World:
     cid, storage = committed_company.id, MemoryStorage()
     with Session(migrated_engine) as s, s.begin():
         anouk = _tenant(s, cid, "1", "Anouk", "100", "500")
@@ -92,11 +94,11 @@ def world(migrated_engine: Engine, committed_company: Company) -> World:
         _store(s, storage, cid, 6, b"Huurovereenkomst Bram. Huisdieren BRAM-GEHEIM toegestaan.")
         _store(s, storage, cid, 1, b"Paspoort van Anouk, nummer NX123")
         _store(s, storage, cid, 8, b"")
-    return World(cid, anouk, bram, storage)
+    return World(cid, anouk, bram, storage, test_settings.model_copy(update={"llm_model": "fake"}))
 
 
 def _index_all(engine: Engine, w: World) -> int:
-    return index_backlog(engine, w.storage, Reader(), HashingEmbedder(), w.company)
+    return index_backlog(engine, w.storage, Reader(), HashingEmbedder(), w.company, w.settings)
 
 
 def test_a_tenants_brixx_lease_is_indexed_linked_and_in_their_dossier(migrated_engine: Engine, world: World) -> None:
@@ -143,7 +145,9 @@ def test_a_new_version_replaces_the_old_one(migrated_engine: Engine, world: Worl
         newer = _store(
             s, world.storage, world.company, 2, b"Huurovereenkomst Anouk, versie 2. Huisdieren verboden.", "v2"
         )
-    assert index_brixx_document(migrated_engine, world.storage, Reader(), HashingEmbedder(), world.company, newer)
+    assert index_brixx_document(
+        migrated_engine, world.storage, Reader(), HashingEmbedder(), world.company, newer, world.settings
+    )
     with Session(migrated_engine) as s:
         texts = " ".join(s.scalars(select(DocumentChunk.text).join(DocumentRow).where(
             DocumentRow.title == "Huurovereenkomst Anouk")))  # fmt: skip
