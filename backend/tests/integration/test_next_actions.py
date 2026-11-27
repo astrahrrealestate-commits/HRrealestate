@@ -350,3 +350,68 @@ def test_unknown_category_is_422(migrated_engine: Engine, pg_url: str, committed
         assert client.get("/api/dashboard/categories").status_code == 200
         assert client.get("/api/dashboard/categories/unknown").status_code == 422
         assert client.get("/api/dashboard/categories/spam").status_code == 422
+
+
+def _review_doc(engine: Engine, cid: UUID, *, sent_days_ago: int, case_id: UUID | None) -> UUID:
+    m = mail(engine, cid, case_id=case_id, at=NOW - timedelta(days=sent_days_ago), thread=f"d{uuid4().hex[:6]}")
+    with Session(engine) as s, s.begin():
+        att = AttachmentRow(company_id=cid, message_id=m.message_id, s3_key="k", mime_type="application/pdf",
+                            size_bytes=10, sha256=uuid4().hex * 2, filename="doc.pdf")  # fmt: skip
+        s.add(att)
+        s.flush()
+        doc = DocumentRow(company_id=cid, attachment_id=att.id, doc_type="other", title="Doc", file_name="doc.pdf",
+                          confidence=0.3, status=DocumentStatus.review)  # fmt: skip
+        s.add(doc)
+        s.flush()
+        if case_id is not None:
+            s.add(DocumentLink(company_id=cid, document_id=doc.id, kind=DocLinkKind.case, ref_id=case_id,
+                               method="message", score=1.0))  # fmt: skip
+        return doc.id
+
+
+def test_a_reload_does_not_fill_the_desk_with_old_items(migrated_engine: Engine, committed_company: Company) -> None:
+    """After 90 days of mail are reloaded, a document or flagged quote older than the desk window shows only while
+    its case is open; every reloaded row is new, so the age is the mail's or the quote's own date."""
+    cid = committed_company.id
+    with Session(migrated_engine) as s, s.begin():
+        _, open_case = _seed_case(s, cid, Category.maintenance)
+    recent = _review_doc(migrated_engine, cid, sent_days_ago=3, case_id=None)
+    old_loose = _review_doc(migrated_engine, cid, sent_days_ago=60, case_id=None)
+    old_open = _review_doc(migrated_engine, cid, sent_days_ago=60, case_id=open_case)
+    with Session(migrated_engine) as s, s.begin():
+        for days, case_id in ((60, None), (3, None)):
+            quoted = (NOW - timedelta(days=days)).date()
+            q = QuoteRow(company_id=cid, case_id=case_id, source=QuoteSource.message, source_id=new_id(),
+                         quote_date=quoted, currency="EUR", total=Decimal("500"))  # fmt: skip
+            s.add(q)
+            s.flush()
+            s.add(QuoteReview(company_id=cid, quote_id=q.id, snapshot_basis=SnapshotBasis.decision_day,
+                              verdict=Verdict.above_market, overcharge=Decimal("100"), late_days=0,
+                              report={}))  # fmt: skip
+    viewer = ActionViewer(money=True, inbox=True)
+    with Session(migrated_engine) as s:
+        admin = {a.id for a in next_actions(s, cid, Category.administration, viewer)}
+        maint = {a.id for a in next_actions(s, cid, Category.maintenance, viewer)}
+        quotes = [a for a in next_actions(s, cid, Category.finance, viewer) if a.kind == "quote_review"]
+    assert f"doc:{recent}" in admin
+    assert f"doc:{old_loose}" not in admin
+    assert f"doc:{old_open}" in maint
+    assert len(quotes) == 1
+
+
+def test_the_brief_counts_every_action_not_only_the_page(
+    migrated_engine: Engine, pg_url: str, committed_company: Company
+) -> None:
+    cid = committed_company.id
+    with Session(migrated_engine) as s, s.begin():
+        for _ in range(3):
+            _, c = _seed_case(s, cid, Category.maintenance)
+            _seed_approval(s, cid, c)
+    app, settings = build_app(migrated_engine, pg_url)
+    member = add_person_to_team(
+        migrated_engine, cid, f"b-{uuid4().hex[:6]}@t.test", role="member", sections=["dashboard", "inbox"]
+    )
+    with signed_in(app, settings, member) as client:
+        body = client.get("/api/dashboard/categories/maintenance", params={"limit": 1}).json()
+    assert len(body["actions"]) == 1
+    assert body["brief"].startswith("3 ")

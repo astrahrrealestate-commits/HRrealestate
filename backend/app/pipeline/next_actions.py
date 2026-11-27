@@ -33,7 +33,9 @@ __all__ = [
     "NextAction",
     "category_brief",
     "category_summaries",
+    "enrich_actions",
     "next_actions",
+    "ranked_actions",
     "waiting_split",
 ]
 
@@ -150,7 +152,25 @@ def next_actions(
     urgency_filter: Literal["all", "emergency", "high"] = "all",
     now: datetime | None = None,
 ) -> list[NextAction]:
-    """Ranked next actions for one of the six categories; empty list for `spam`.
+    """The first `limit` ranked next actions of one of the six categories, enriched; empty list for `spam`."""
+    ref = now or datetime.now(UTC)
+    ranked = ranked_actions(
+        session, company_id, category, viewer, brixx_items=brixx_items, urgency_filter=urgency_filter, now=ref
+    )
+    return enrich_actions(session, company_id, viewer, ranked[: max(1, limit)], now=ref)
+
+
+def ranked_actions(
+    session: Session,
+    company_id: UUID,
+    category: Category,
+    viewer: ActionViewer,
+    *,
+    brixx_items: Sequence[BrixxAttentionLike] = (),
+    urgency_filter: Literal["all", "emergency", "high"] = "all",
+    now: datetime | None = None,
+) -> list[NextAction]:
+    """Every next action of one category, ranked and not yet enriched (the brief counts them all).
 
     Deduplicates overlapping conversation-turn actions (`approve_draft`, `reply_needed`, `overdue_wait`) per `case_id`
     while keeping distinct artifact reviews (`quote_review`, `document_review`)."""
@@ -172,7 +192,7 @@ def next_actions(
                 continue
             seen_cases.add(act.case_id)
         ranked.append(act)
-    return enrich_actions(session, company_id, viewer, ranked[: max(1, limit)], now=ref)
+    return ranked
 
 
 def category_summaries(

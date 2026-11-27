@@ -61,10 +61,6 @@ the architectural invariants in [CLAUDE.md](../../CLAUDE.md). A **blocker** fail
 **nit** (hardening or clarity).
 
 ## Known gaps (2026-11-09; remove an item when it is fixed)
-- M13 lane B (2026-11-26, open): the pre-draft read (`pipeline/draft_reading.py`) OCRs an attachment before filing
-  classifies it, so ID-document text sent under a neutral file name can reach `attachments.extracted_text`, person
-  memory, the proposer dossier and their `model_calls` rows; `purge_text` later blanks only the classifier call. The
-  line above saying its text "never reaches dossier or search chunks" holds only once this is fixed (lane A owns it).
 - M13 lane B (2026-11-26, needs a decision): a mailbox purge deletes the actions, approvals and revisions of replies
   that were already sent; `sends` stay with `action_id` NULL, so what Harjot approved, and when, is then only in the
   RDS snapshot taken before the purge. Keep that snapshot, or archive sent actions' approvals first (a migration).

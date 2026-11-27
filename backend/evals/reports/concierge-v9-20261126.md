@@ -1,6 +1,6 @@
 # Eval: concierge/v9
 
-- date: 2026-11-26T03:47:54+00:00
+- date: 2026-11-26T10:37:34+00:00
 - model: google-gla:gemini-3.8-flash
 - prompt sha256: 06f8d73c4dfd040a15bd1784598adf8e5968326632af10681deaea5fd5034b03
 
@@ -10,7 +10,7 @@
 | scope_accuracy | 1.00 |
 | forbidden_intent_rate | 0.01 |
 | invariant_pass_rate | 1.00 |
-| reply_rate | 0.50 |
+| reply_rate | 0.62 |
 | research_recall | 1.00 |
 | research_false_rate | 0.01 |
 

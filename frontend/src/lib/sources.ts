@@ -1,5 +1,6 @@
 /** The sources a researched Astra answer rests on (`sources` in POST /api/agent/ask). The backend only lists rows and
- * pages its own tools returned; a web page opens in a new tab, and only over https. */
+ * pages its own tools returned, and builds `href` itself (a mail's case thread, a filed document's Drive file). A chip
+ * opens only one of our own pages or an https URL. */
 
 export type SourceKind = "message" | "document" | "web" | "data";
 
@@ -7,6 +8,7 @@ export interface AnswerSource {
   kind: SourceKind;
   ref: string;
   label: string;
+  href?: string | null;
 }
 
 export interface SourceChip {
@@ -16,14 +18,20 @@ export interface SourceChip {
   href: string | null;
 }
 
-function safeLink(source: AnswerSource): string | null {
-  if (source.kind !== "web") return null;
+function httpsOnly(raw: string): string | null {
   try {
-    const url = new URL(source.ref);
+    const url = new URL(raw);
     return url.protocol === "https:" ? url.toString() : null;
   } catch {
     return null;
   }
+}
+
+function safeLink(source: AnswerSource): string | null {
+  const href = source.href ?? (source.kind === "web" ? source.ref : null);
+  if (!href) return null;
+  if (/^\/(?![/\\])/.test(href)) return href; // one of our own pages (never "//host" or "/\\host")
+  return httpsOnly(href);
 }
 
 export function sourceChips(sources: AnswerSource[] | undefined | null): SourceChip[] {
