@@ -1846,6 +1846,69 @@ export async function uploadThreadAttachment(caseId: string, file: File): Promis
   }
 }
 
+export async function enhanceContactEmailDraft(
+  contactId: string,
+  messageId: string,
+  instruction: string,
+  currentText: string
+): Promise<{ ok: boolean; enhancedText?: string; problem?: string; sourcesUsed?: string[] }> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/messages/${encodeURIComponent(messageId)}/enhance`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ instruction, current_text: currentText }),
+        signal: AbortSignal.timeout(90000),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        ok: data.ok,
+        enhancedText: data.enhanced_text || data.variants?.[0],
+        problem: data.problem,
+        sourcesUsed: data.sources_used,
+      };
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return { ok: false, problem: err.detail || "Enhance request failed." };
+  } catch {
+    return { ok: false, problem: "Enhance request timed out or network error." };
+  }
+}
+
+export async function enhanceContactWhatsAppDraft(
+  contactId: string,
+  instruction: string,
+  currentText: string
+): Promise<{ ok: boolean; enhancedText?: string; problem?: string; sourcesUsed?: string[] }> {
+  try {
+    const res = await apiFetch(
+      `${BACKEND_BASE_URL}/api/contacts/${encodeURIComponent(contactId)}/whatsapp/enhance`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ instruction, current_text: currentText }),
+        signal: AbortSignal.timeout(90000),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        ok: data.ok,
+        enhancedText: data.enhanced_text || data.variants?.[0],
+        problem: data.problem,
+        sourcesUsed: data.sources_used,
+      };
+    }
+    const err = (await res.json().catch(() => ({}))) as { detail?: string };
+    return { ok: false, problem: err.detail || "Enhance request failed." };
+  } catch {
+    return { ok: false, problem: "Enhance request timed out or network error." };
+  }
+}
+
 export async function enhanceThreadDraft(
   caseId: string,
   payload: { instruction: string; current_text: string; message_id?: string }
