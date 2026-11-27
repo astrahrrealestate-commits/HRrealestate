@@ -152,7 +152,7 @@ module "ecs" {
   enable_container_insights = true
 
   backend_environment_variables = [
-    { name = "ENV", value = "dev" },
+    { name = "ENV", value = "prod" },
     { name = "API_PORT", value = tostring(var.app_port) },
     { name = "STORAGE_BACKEND", value = "s3" },
     { name = "S3_BUCKET", value = module.s3.bucket_id },
@@ -170,8 +170,8 @@ module "ecs" {
     { name = "LLM_TIMEOUT_SEC", value = "30" },
     # Astra stops looking things up at 60% of this and answers from what it found (needs the ALB idle_timeout above).
     { name = "SUPER_AGENT_DEADLINE_SEC", value = "100" },
-    # Tried when Gemini answers an error; skipped while OPENAI_API_KEY is empty (app/llm/runtime.py).
-    { name = "LLM_FALLBACK_MODELS", value = "openai:gpt-4.1-mini" },
+    # Tried when Gemini answers an error; prod only allows google-gla:* models.
+    { name = "LLM_FALLBACK_MODELS", value = "google-gla:gemini-2.5-flash-lite" },
     { name = "WHATSAPP_PROVIDER", value = "cloud_api" },
     { name = "WHATSAPP_API_BASE_URL", value = "https://graph.facebook.com/v23.0" },
     { name = "WHATSAPP_FROM_NUMBER", value = "916364840587" },

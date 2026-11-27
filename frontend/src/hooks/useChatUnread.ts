@@ -2,6 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { effectivePollInterval, FEED_EVENT, subscribeFeedEvents } from "@/hooks/useFeedEvents";
 import { totalUnread } from "@/lib/chats";
 import { getChats } from "@/lib/chatsApi";
 
@@ -46,21 +47,31 @@ function handleVisibilityOrChanged() {
   if (listeners.size > 0) void fetchSharedUnread(true);
 }
 
+let stopFeedEvents: (() => void) | null = null;
+
 function ensureStoreStarted() {
+  if (stopFeedEvents === null) {
+    stopFeedEvents = subscribeFeedEvents();
+  }
   if (pollTimer === null) {
     pollTimer = setInterval(() => {
       if (listeners.size > 0) void fetchSharedUnread();
-    }, POLL_MS);
+    }, effectivePollInterval(POLL_MS));
   }
   if (!globalListenersAttached && typeof window !== "undefined") {
     globalListenersAttached = true;
     window.addEventListener(CHATS_CHANGED, handleVisibilityOrChanged);
+    window.addEventListener(FEED_EVENT, handleVisibilityOrChanged);
     document.addEventListener("visibilitychange", handleVisibilityOrChanged);
   }
 }
 
 function stopStoreIfIdle() {
   if (listeners.size > 0) return;
+  if (stopFeedEvents !== null) {
+    stopFeedEvents();
+    stopFeedEvents = null;
+  }
   if (pollTimer !== null) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -68,6 +79,7 @@ function stopStoreIfIdle() {
   if (globalListenersAttached && typeof window !== "undefined") {
     globalListenersAttached = false;
     window.removeEventListener(CHATS_CHANGED, handleVisibilityOrChanged);
+    window.removeEventListener(FEED_EVENT, handleVisibilityOrChanged);
     document.removeEventListener("visibilitychange", handleVisibilityOrChanged);
   }
 }

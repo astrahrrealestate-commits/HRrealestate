@@ -42,8 +42,15 @@ def production_problems(settings: Settings) -> list[str]:
         problems.append("google_chat_provider is 'fake' (it accepts unsigned tokens)")
     elif settings.google_chat_provider == "google" and not settings.google_chat_project_number:
         problems.append("google_chat_project_number is not set (the Chat token audience)")
+    # When S3-backed Google OAuth is configured, tokens live in S3 (`google_store.py`) rather than local files.
+    s3_oauth = (
+        settings.storage_backend == "s3"
+        and bool(settings.s3_bucket)
+        and bool(settings.google_oauth_client_id)
+        and bool(settings.google_oauth_client_secret)
+    )
     drive = settings.drive_credentials_file
-    if drive is None or not drive.is_file():
+    if not s3_oauth and (drive is None or not drive.is_file()):
         problems.append("drive_credentials_file is not set or not a readable file")
     if settings.storage_backend != "s3":
         problems.append(f"storage_backend is {settings.storage_backend!r} (prod needs 's3')")
@@ -77,7 +84,7 @@ def production_problems(settings: Settings) -> list[str]:
         if not value.startswith("https://") or "localhost" in value or "127.0.0.1" in value:
             problems.append(f"{name} must be a public https URL (it is {value!r})")
     creds = settings.gmail_credentials_file
-    if creds is None or not creds.is_file():
+    if not s3_oauth and (creds is None or not creds.is_file()):
         problems.append("gmail_credentials_file is not set or not a readable file")
     return problems
 

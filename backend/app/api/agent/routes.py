@@ -4,14 +4,18 @@ Exposes the autonomous CONCIERGE (Super Agent) and executor pipeline to the Next
 Executes multi-step plans (case status, drafting replies, task completions/snoozing, inbox search, view navigation).
 """
 
+import asyncio
+import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from urllib.parse import quote_plus
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
 from sqlalchemy import case as sql_case
@@ -1070,8 +1074,7 @@ def _sanitize_suggestions(
     elif any(k in q_low for k in ["rent", "arrear", "invoice", "money", "overdue", "bouwdepot", "tax"]):
         fallback_pills = ["Draft payment reminder", "Show lease PDF", "Open in Money"]
     elif any(
-        k in q_low
-        for k in ["legal", "lawyer", "notary", "roz", "huurcommissie", "evict", "termination", "advocaat"]
+        k in q_low for k in ["legal", "lawyer", "notary", "roz", "huurcommissie", "evict", "termination", "advocaat"]
     ):
         fallback_pills = ["Draft legal reply", "Read lease clauses", "Open in Messages"]
     elif any(k in q_low for k in ["project", "acquisition", "dd", "due diligence", "permit", "splits", "nieuw"]):
@@ -1159,9 +1162,7 @@ def _resolve_query_navigation(question: str, columns: list[str]) -> tuple[str, s
     # 8. Inbox / Messages (legal, business, administration, new_projects, general cases)
     if (
         bool(
-            re.search(
-                r"\b(case|cases|legal|business|administration|new_projects|email|mail|whatsapp|message)\b", q_low
-            )
+            re.search(r"\b(case|cases|legal|business|administration|new_projects|email|mail|whatsapp|message)\b", q_low)
         )
         or "case" in col_str
         or "category" in col_str
@@ -1512,6 +1513,41 @@ def _finish_agent_response(
         suggestedPrompts=suggestions,
         focus_state=current_focus,
         sources=list(sources),
+    )
+
+
+@router.post(
+    "/ask/stream",
+    dependencies=[Depends(ask_limit)],
+    summary="Stream EstateOS Super Agent response (SSE)",
+    description="Streams status heartbeats while Astra researches, followed by the final AskAgentResponse payload.",
+)
+async def ask_agent_stream(
+    req: AskAgentRequest,
+    engine: Annotated[Engine, Depends(get_engine)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    principal: Annotated[Principal, Depends(require_session)],
+) -> StreamingResponse:
+    async def _events() -> AsyncIterator[str]:
+        yield f"event: status\ndata: {json.dumps({'stage': 'thinking'})}\n\n"
+        task = asyncio.create_task(run_in_threadpool(ask_agent, req, engine, settings, principal))
+        try:
+            while not task.done():
+                done, _ = await asyncio.wait({task}, timeout=2.0)
+                if not done:
+                    yield f"event: status\ndata: {json.dumps({'stage': 'researching'})}\n\n"
+            result = await task
+            yield f"event: result\ndata: {result.model_dump_json()}\n\n"
+        except HTTPException as exc:
+            yield f"event: error\ndata: {json.dumps({'status': exc.status_code, 'detail': exc.detail})}\n\n"
+        except Exception as exc:
+            log.warning("agent.ask_stream.error", error_type=type(exc).__name__)
+            yield f"event: error\ndata: {json.dumps({'status': 500, 'detail': 'Internal error'})}\n\n"
+
+    return StreamingResponse(
+        _events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

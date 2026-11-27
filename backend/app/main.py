@@ -81,10 +81,17 @@ def create_app(
 
         api.state.storage = storage
 
-        api.state.translators = {  # keyed by target language; each model loads on first use
-            "en": translator or Ct2Translator(settings.translation_model_dir),
-            "nl": translator_en_nl or Ct2Translator(settings.translation_model_dir_en_nl, engine="opus-mt-en-nl"),
-        }
+        # In prod, translation is offloaded to the worker (`translation.translate`) so the API stays lightweight.
+        if settings.env == "prod":
+            api.state.translators = {
+                **({"en": translator} if translator is not None else {}),
+                **({"nl": translator_en_nl} if translator_en_nl is not None else {}),
+            }
+        else:
+            api.state.translators = {  # keyed by target language; each model loads on first use
+                "en": translator or Ct2Translator(settings.translation_model_dir),
+                "nl": translator_en_nl or Ct2Translator(settings.translation_model_dir_en_nl, engine="opus-mt-en-nl"),
+            }
 
         api.state.workflow_client = workflow_client or DBOSClient(
             system_database_url=settings.dbos_database_url, lazy=True
