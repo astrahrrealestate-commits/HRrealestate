@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
@@ -436,3 +436,31 @@ def test_dossier_holds_relevant_older_mail_of_the_sender(
     assert any("1.900" in line.text for line in d.older_mail)
     assert ids[0] in d.extra_message_ids
     assert "BRAM-BORG" not in _text(d)
+
+
+def test_older_mail_never_brings_an_unknown_senders_words(
+    migrated_engine: Engine, cid: UUID, test_settings: Settings
+) -> None:
+    """A search chunk can hold mail of a sender the directory does not know (no person, so no participant): it is
+    not the person's own conversation."""
+    from app.db.models.message_rag import MessageChunk
+    from app.tools.message_rag.indexer import index_message
+
+    settings = test_settings.model_copy(update={"embedding_model": "fake"})
+    anouk = add_person(migrated_engine, cid, "Anouk", ANOUK)
+    old = add_case(migrated_engine, cid, anouk)
+    own = add_mail(migrated_engine, cid, "Mijn waarborgsom is nog niet terug.", sender=ANOUK, person_id=anouk,
+                   case_id=old, thread="t-borg", days_ago=200)  # fmt: skip
+    stranger = add_mail(migrated_engine, cid, "VREEMDE-TEKST over de waarborgsom.", sender="x@evil.test",
+                        thread="t-borg", days_ago=199)  # fmt: skip
+    for mid in (own, stranger):
+        index_message(migrated_engine, settings, mid)
+    with Session(migrated_engine) as s, s.begin():  # one chunk filed under Anouk that also holds the stranger's mail
+        for chunk in s.scalars(select(MessageChunk).where(MessageChunk.company_id == cid)):
+            chunk.person_id, chunk.message_ids = anouk, [own, stranger]
+            chunk.text = chunk.text + " VREEMDE-TEKST"
+    case = add_case(migrated_engine, cid, anouk)
+    current = add_mail(
+        migrated_engine, cid, "Waar blijft mijn waarborgsom?", sender=ANOUK, person_id=anouk, case_id=case
+    )
+    assert "VREEMDE-TEKST" not in _text(_build(migrated_engine, cid, current))

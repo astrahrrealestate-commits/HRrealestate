@@ -76,7 +76,7 @@ def _sources(d: Dossier) -> tuple[str, ...]:
 
 
 def _message_ids(d: Dossier) -> tuple[UUID, ...]:
-    lines = (d.current, *d.thread, *d.sender_history)
+    lines = (d.current, *d.thread, *d.sender_history, *d.similar_conversations)  # every message in the prompt
     return tuple(dict.fromkeys([*(line.message_id for line in lines), *d.extra_message_ids]))
 
 
