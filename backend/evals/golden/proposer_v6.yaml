@@ -110,7 +110,7 @@ cases:
     message: "Waarom moet ik EUR 84 bijbetalen voor de servicekosten? Dat snap ik niet."
     attachments:
       - {filename: "afrekening_servicekosten_2025.pdf", text: "Afrekening servicekosten 2025, Duinvlietstraat 42. Betaalde voorschotten: 12 x EUR 45,00 = EUR 540,00. Werkelijke kosten: schoonmaak trappenhuis EUR 312,00; elektra algemene ruimten EUR 198,00; glasbewassing EUR 114,00. Totaal EUR 624,00. Bij te betalen: EUR 84,00."}
-  metadata: {group: resolve, mentions_any: [["540"], ["624", "schoonmaak", "glasbewassing"]], max_questions: 1}
+  metadata: {group: resolve, mentions_any: [["540"], ["624", "schoonmaak", "glasbewassing"]], max_questions: 1, never_mentions: ["niets te doen"]}
 - name: invoice_matches_agreed_quote
   inputs:
     message: "Bijgaand de factuur voor het vervangen van de cv-ketel in Singel 5, conform offerte."
@@ -126,7 +126,7 @@ cases:
     thread:
       - "Anouk: De verwarming doet het niet meer."
       - "Harjot (sent): Monteur van Warmte BV komt dinsdag tussen 8 en 12 uur."
-  metadata: {group: resolve, max_questions: 0, resolves: true, never_mentions: ["korting"]}
+  metadata: {group: resolve, max_questions: 0, resolves: true, never_mentions: ["korting", "garantie", "langs"]}
 - name: earlier_report_without_date
   inputs:
     message: "Ik heb de lekkage onder het aanrecht al eerder gemeld en er is nog steeds niemand geweest."

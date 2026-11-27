@@ -30,9 +30,9 @@ from app.llm.calls import AgentSpec
 from app.llm.prompts import LoadedPrompt
 from app.llm.render import data_block, escape
 
-ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13"})
+ROLE_AWARE_PROMPTS = frozenset({"v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"})
 # the dossier replaces <message>, <waiting> and <excerpts>
-DOSSIER_PROMPTS = frozenset({"v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13"})
+DOSSIER_PROMPTS = frozenset({"v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"})
 MAX_PERSONA_CHARS = 8000  # the persona markdown's limit (a data block holds at most this many characters)
 
 
@@ -168,6 +168,13 @@ PROPOSER_V12 = AgentSpec(  # v11 after its real-model misses: cited law only, nu
 PROPOSER_V13 = AgentSpec(  # v12 after its real-model misses: no invented figure, date or rule detail; open scope asked
     name="proposer",
     prompt=PromptRef(name="proposer", version="v13"),
+    output_type=Proposal,
+    finalize=_unchanged,
+    gemini_prompted=True,
+)
+PROPOSER_V14 = AgentSpec(  # v13 after its real-model misses: no unstated promise, each item asked once, next step
+    name="proposer",
+    prompt=PromptRef(name="proposer", version="v14"),
     output_type=Proposal,
     finalize=_unchanged,
     gemini_prompted=True,
