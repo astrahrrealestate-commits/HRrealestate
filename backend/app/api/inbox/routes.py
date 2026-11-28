@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, exists, func, or_, select
 from sqlalchemy import case as sql_case
 from sqlalchemy.orm import Session
 
@@ -728,21 +728,61 @@ def _assemble_cases(
     return live_threads
 
 
-def _build_live_threads(
+def _inbox_base_query(
     session: Session,
     company_id: UUID,
-    limit: int = 20,
-    offset: int = 0,
     *,
-    channel: str = "all",
-    audience: str = "all",
     category: str = "all",
+    tab: str = "all",
+    search: str = "",
     sort: str = "recent",
-    include_html: bool = True,
-) -> list[dict[str, Any]]:
-    """Builds frontend-compatible thread structures from PostgreSQL via batched read-only queries."""
-    has_python_filters = channel != "all" or audience != "all" or category in ("contractor_repairs", "contractor_money")
+    now_dt: datetime,
+) -> Any:
     base_q = session.query(Case).filter(Case.company_id == company_id)
+    if category not in ("all", "contractor_repairs", "contractor_money"):
+        with contextlib.suppress(ValueError):
+            base_q = base_q.filter(Case.category == Category(category))
+    if tab == "done":
+        base_q = base_q.filter(Case.state.in_((CaseState.closed, CaseState.resolved)))
+    elif tab == "snoozed":
+        base_q = base_q.filter(Case.snoozed_until.is_not(None), Case.snoozed_until > now_dt)
+    elif tab == "unread":
+        base_q = base_q.filter(
+            Case.last_read_at.is_(None),
+            ~Case.state.in_((CaseState.closed, CaseState.resolved)),
+        )
+    elif tab == "needs_you":
+        base_q = base_q.filter(
+            ~Case.state.in_((CaseState.closed, CaseState.resolved)),
+            or_(Case.snoozed_until.is_(None), Case.snoozed_until <= now_dt),
+        )
+    q_text = search.strip()
+    if q_text:
+        pat = f"%{q_text}%"
+        msg_match = exists(
+            select(1)
+            .select_from(CaseLink)
+            .join(MessageRow, MessageRow.id == CaseLink.message_id)
+            .where(
+                CaseLink.case_id == Case.id,
+                MessageRow.company_id == company_id,
+                or_(
+                    MessageRow.sender_identity.ilike(pat),
+                    MessageRow.text.ilike(pat),
+                    MessageRow.meta["subject"].astext.ilike(pat),
+                ),
+            )
+        )
+        person_match = exists(
+            select(1)
+            .select_from(Person)
+            .where(
+                Person.id == Case.primary_person_id,
+                Person.company_id == company_id,
+                Person.display_name.ilike(pat),
+            )
+        )
+        base_q = base_q.filter(or_(Case.summary.ilike(pat), msg_match, person_match))
     if sort == "priority":
         closed_rank = sql_case((Case.state.in_((CaseState.closed, CaseState.resolved)), 1), else_=0)
         urgency_rank = sql_case(
@@ -752,11 +792,39 @@ def _build_live_threads(
             else_=3,
         )
         base_q = base_q.order_by(closed_rank.asc(), urgency_rank.asc(), Case.opened_at.desc())
+    elif sort == "oldest":
+        base_q = base_q.order_by(Case.opened_at.asc())
     else:
         base_q = base_q.order_by(Case.opened_at.desc())
-    if category not in ("all", "contractor_repairs", "contractor_money"):
-        with contextlib.suppress(ValueError):
-            base_q = base_q.filter(Case.category == Category(category))
+    return base_q
+
+
+def _build_live_threads(
+    session: Session,
+    company_id: UUID,
+    limit: int = 20,
+    offset: int = 0,
+    *,
+    channel: str = "all",
+    audience: str = "all",
+    category: str = "all",
+    tab: str = "all",
+    search: str = "",
+    sort: str = "recent",
+    include_html: bool = True,
+) -> list[dict[str, Any]]:
+    """Builds frontend-compatible thread structures from PostgreSQL via batched read-only queries."""
+    has_python_filters = channel != "all" or audience != "all" or category in ("contractor_repairs", "contractor_money")
+    now_dt = datetime.now(UTC)
+    base_q = _inbox_base_query(
+        session,
+        company_id,
+        category=category,
+        tab=tab,
+        search=search,
+        sort=sort,
+        now_dt=now_dt,
+    )
 
     if not has_python_filters:
         cases = base_q.offset(offset).limit(limit).all()
@@ -834,8 +902,10 @@ def get_inbox_threads(
     engine: Annotated[Engine, Depends(get_engine)],
     channel: str = Query(default="all", description="all, gmail, whatsapp"),
     audience: str = Query(default="all", description="all, tenants, contractors"),
-    category: str = Query(default="all", description="all, contractor_repairs, contractor_money"),
-    sort: str = Query(default="recent", description="recent or priority"),
+    category: str = Query(default="all", description="all, maintenance, finance, legal, or contractor_*"),
+    tab: str = Query(default="all", description="all, needs_you, unread, done, snoozed"),
+    search: str = Query(default="", description="Filter by sender, subject, or summary"),
+    sort: str = Query(default="recent", description="recent, oldest, or priority"),
     limit: int = Query(default=20, ge=1, le=100, description="Max threads to return"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     include_html: bool = Query(default=True, description="Include sanitized HTML email bodies"),
@@ -847,6 +917,8 @@ def get_inbox_threads(
     chan = channel if isinstance(channel, str) else getattr(channel, "default", "all")
     aud = audience if isinstance(audience, str) else getattr(audience, "default", "all")
     cat = category if isinstance(category, str) else getattr(category, "default", "all")
+    tab_val = tab if isinstance(tab, str) else getattr(tab, "default", "all")
+    search_val = search if isinstance(search, str) else getattr(search, "default", "")
     sort_mode = sort if isinstance(sort, str) else getattr(sort, "default", "recent")
     lim = limit if isinstance(limit, int) else getattr(limit, "default", 20)
     off = offset if isinstance(offset, int) else getattr(offset, "default", 0)
@@ -861,17 +933,28 @@ def get_inbox_threads(
             channel=chan,
             audience=aud,
             category=cat,
+            tab=tab_val,
+            search=search_val,
             sort=sort_mode,
             include_html=inc_html,
         )
-        total_cases = session.query(func.count(Case.id)).filter(Case.company_id == principal.company_id).scalar() or 0
+        raw_total = _inbox_base_query(
+            session,
+            principal.company_id,
+            category=cat,
+            tab=tab_val,
+            search=search_val,
+            sort=sort_mode,
+            now_dt=datetime.now(UTC),
+        ).count()
+        total_cases = raw_total if isinstance(raw_total, int) else 0
     if not principal.access.can("inbox"):
         live_threads = [headline_only(t) for t in live_threads]
 
     threads = list(live_threads)
 
-    unfiltered = chan == "all" and aud == "all" and cat == "all"
-    has_more = (off + len(live_threads)) < total_cases if unfiltered else len(live_threads) == lim
+    has_python_filters = chan != "all" or aud != "all" or cat in ("contractor_repairs", "contractor_money")
+    has_more = (off + len(live_threads)) < total_cases if not has_python_filters else len(live_threads) == lim
     return {
         "threads": threads,
         "total": total_cases,

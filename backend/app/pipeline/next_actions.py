@@ -168,6 +168,7 @@ def ranked_actions(
     *,
     brixx_items: Sequence[BrixxAttentionLike] = (),
     urgency_filter: Literal["all", "emergency", "high"] = "all",
+    sort: Literal["priority", "latest"] = "priority",
     now: datetime | None = None,
 ) -> list[NextAction]:
     """Every next action of one category, ranked and not yet enriched (the brief counts them all).
@@ -192,6 +193,8 @@ def ranked_actions(
                 continue
             seen_cases.add(act.case_id)
         ranked.append(act)
+    if sort == "latest":
+        ranked.sort(key=lambda a: a.last_at or a.due_at or "", reverse=True)
     return ranked
 
 

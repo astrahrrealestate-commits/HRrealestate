@@ -24,7 +24,9 @@ export interface FetchThreadsParams {
   channel?: "all" | "gmail" | "whatsapp" | string;
   audience?: "all" | "tenants" | "contractors";
   category?: string;
-  sort?: "recent" | "priority";
+  tab?: string;
+  search?: string;
+  sort?: "recent" | "oldest" | "priority";
   limit?: number;
   offset?: number;
   includeHtml?: boolean;
@@ -91,6 +93,8 @@ export async function getInboxThreads(
   if (params.channel && params.channel !== "all") query.set("channel", params.channel);
   if (params.audience && params.audience !== "all") query.set("audience", params.audience);
   if (params.category && params.category !== "all") query.set("category", params.category);
+  if (params.tab && params.tab !== "all") query.set("tab", params.tab);
+  if (params.search && params.search.trim()) query.set("search", params.search.trim());
   if (params.sort && params.sort !== "recent") query.set("sort", params.sort);
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.offset !== undefined) query.set("offset", String(params.offset));
@@ -2293,6 +2297,10 @@ export interface CategoryNextAction {
 export interface CategoryDeskData {
   brief: string | null;
   actions: CategoryNextAction[];
+  total?: number;
+  has_more?: boolean;
+  emergency_count?: number;
+  urgent_count?: number;
   waiting_for_us?: CategoryNextAction[];
   waiting_for_other?: CategoryNextAction[];
 }
@@ -2316,12 +2324,22 @@ export async function getDashboardCategories(): Promise<CategorySummaryItem[] | 
 
 export async function getCategoryDesk(
   category: BusinessCategory,
-  urgency: "all" | "emergency" | "high" = "all"
+  options: {
+    urgency?: "all" | "emergency" | "high";
+    sort?: "priority" | "latest";
+    limit?: number;
+    offset?: number;
+  } | "all" | "emergency" | "high" = {}
 ): Promise<CategoryDeskData | null> {
   try {
-    const qs = urgency === "all" ? "?limit=25" : `?limit=25&urgency=${encodeURIComponent(urgency)}`;
+    const opts = typeof options === "string" ? { urgency: options } : options;
+    const query = new URLSearchParams();
+    query.set("limit", String(opts.limit ?? 10));
+    if (opts.offset) query.set("offset", String(opts.offset));
+    if (opts.urgency && opts.urgency !== "all") query.set("urgency", opts.urgency);
+    if (opts.sort && opts.sort !== "priority") query.set("sort", opts.sort);
     const res = await apiFetch(
-      `${BACKEND_BASE_URL}/api/dashboard/categories/${encodeURIComponent(category)}${qs}`,
+      `${BACKEND_BASE_URL}/api/dashboard/categories/${encodeURIComponent(category)}?${query.toString()}`,
       {
         method: "GET",
         headers: { Accept: "application/json" },
@@ -2330,9 +2348,14 @@ export async function getCategoryDesk(
     );
     if (res.ok) {
       const data = await res.json();
+      const actions = Array.isArray(data?.actions) ? data.actions : [];
       return {
         brief: typeof data?.brief === "string" ? data.brief : null,
-        actions: Array.isArray(data?.actions) ? data.actions : [],
+        actions,
+        total: typeof data?.total === "number" ? data.total : actions.length,
+        has_more: Boolean(data?.has_more),
+        emergency_count: typeof data?.emergency_count === "number" ? data.emergency_count : undefined,
+        urgent_count: typeof data?.urgent_count === "number" ? data.urgent_count : undefined,
         waiting_for_us: Array.isArray(data?.waiting_for_us) ? data.waiting_for_us : [],
         waiting_for_other: Array.isArray(data?.waiting_for_other) ? data.waiting_for_other : [],
       };
