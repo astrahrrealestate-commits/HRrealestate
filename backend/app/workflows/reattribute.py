@@ -9,6 +9,7 @@ rolls back, so its report is what an applying run would do. A second run finds n
 carries our address.
 """
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -136,15 +137,27 @@ def _reread(gmail: GmailMailbox, candidate: _Candidate, scope: _Scope) -> _Found
     api_id = gmail_api_id(candidate.provider_msg_id)
     if api_id is None:
         return "unrecoverable"
+    raw_msg = None
+    for attempt in range(5):
+        try:
+            raw_msg = gmail.get_message(api_id)
+            break
+        except GmailApiError as exc:
+            if exc.status in (403, 429) and attempt < 4:
+                time.sleep(min(2.0 * (2**attempt), 30.0))
+                continue
+            if exc.status != 400:  # an outage or a lost login stops the run; only an id Gmail rejects is skipped
+                raise
+            return "unrecoverable"
+        except (NotFoundError, IgnoredMessageError, UnroutableMessageError, ValueError):
+            return "unrecoverable"
+    if raw_msg is None:
+        return "unrecoverable"
     try:
         message, meta, _ = to_message(
-            gmail.get_message(api_id), company_id=scope.company_id, raw_event_id=candidate.message_id,
+            raw_msg, company_id=scope.company_id, raw_event_id=candidate.message_id,
             mailbox=scope.mailbox, forwarders=scope.team, own_addresses=scope.boxes,
         )  # fmt: skip
-    except GmailApiError as exc:
-        if exc.status != 400:  # an outage or a lost login stops the run; only an id Gmail rejects is skipped
-            raise
-        return "unrecoverable"
     except (NotFoundError, IgnoredMessageError, UnroutableMessageError, ValueError):
         return "unrecoverable"
     if message.direction is Direction.outbound or message.sender_identity in scope.team | scope.boxes:
@@ -156,7 +169,9 @@ def _reread(gmail: GmailMailbox, candidate: _Candidate, scope: _Scope) -> _Found
 
 def _read_all(gmail: GmailMailbox, scope: _Scope, candidates: list[_Candidate], report: Report) -> list[_Found]:
     found = []
-    for candidate in candidates:
+    for idx, candidate in enumerate(candidates):
+        if idx > 0:
+            time.sleep(0.15)
         outcome = _reread(gmail, candidate, scope)
         if isinstance(outcome, _Found):
             found.append(outcome)
