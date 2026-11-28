@@ -117,3 +117,50 @@ def test_the_label_step_says_when_to_run_it_again(
 def test_conflicting_or_empty_label_requests_are_refused(args: list[str]) -> None:
     with pytest.raises(SystemExit):
         main(["--mailbox", "info@example.test", *args])
+
+
+def test_days_sender_and_redraft_flags_are_forwarded(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:1/none")
+    monkeypatch.setenv("LLM_MODEL", "google-gla:gemini-3.8-flash")
+    get_settings.cache_clear()
+    company, msg_id = uuid4(), uuid4()
+    seen: dict[str, object] = {}
+
+    def fake_reattribute(engine: object, mailboxes: object, mailbox: str, **kwargs: object) -> Report:
+        seen.update(kwargs)
+        return Report(
+            company_id=company,
+            changes=[Change(msg_id, "harjotsj@gmail.com", "tenant@example.test", was_marked_sent=False)],
+        )
+
+    redrafted: list[object] = []
+
+    def fake_fresh(engine: object, settings: object, req: object, current: object) -> object:
+        redrafted.append(req)
+        return type("R", (), {"revision": object()})()
+
+    monkeypatch.setattr("app.workflows.reattribute_cli.make_engine", lambda url: None)
+    monkeypatch.setattr("app.workflows.reattribute_cli.reattribute", fake_reattribute)
+    monkeypatch.setattr("app.workflows.reattribute_cli.redraft.fresh", fake_fresh)
+    try:
+        rc = main(
+            [
+                "--mailbox",
+                "info@example.test",
+                "--days",
+                "90",
+                "--sender",
+                "harjotsj@gmail.com",
+                "--apply",
+                "--worker-stopped",
+                "--redraft",
+            ]
+        )
+    finally:
+        get_settings.cache_clear()
+    assert rc == 0
+    assert seen == {"apply": True, "days": 90, "sender": "harjotsj@gmail.com"}
+    assert len(redrafted) == 1
+    assert "redrafted: 1" in capsys.readouterr().out

@@ -11,7 +11,7 @@ carries our address.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -94,24 +94,36 @@ def gmail_api_id(stored: str) -> str | None:
     return stored
 
 
-def _scope(engine: Engine, mailbox: str) -> _Scope:
+def _scope(engine: Engine, mailbox: str, *, sender: str | None = None) -> _Scope:
     with Session(engine) as session:
         company_id = resolve_channel_account(session, Channel.gmail, mailbox).company_id
-    return _Scope(company_id, mailbox, owner_addresses(engine, company_id), company_mailboxes(engine, company_id))
+    team = owner_addresses(engine, company_id)
+    if sender:
+        team = team | {sender.strip().lower()}
+    return _Scope(company_id, mailbox, team, company_mailboxes(engine, company_id))
 
 
-def _candidates(engine: Engine, scope: _Scope) -> list[_Candidate]:
+def _candidates(
+    engine: Engine,
+    scope: _Scope,
+    *,
+    days: int | None = None,
+    sender: str | None = None,
+) -> list[_Candidate]:
     received_in = func.lower(MessageRow.meta["mailbox"].astext)
-    query = (
-        select(MessageRow)
-        .where(
-            MessageRow.company_id == scope.company_id,
-            MessageRow.channel == Channel.gmail,
-            func.lower(MessageRow.sender_identity).in_(scope.team | scope.boxes),
-            (received_in == scope.mailbox) | received_in.is_(None),  # history imports record no mailbox
-        )
-        .order_by(MessageRow.sent_at, MessageRow.id)
-    )
+    filters = [
+        MessageRow.company_id == scope.company_id,
+        MessageRow.channel == Channel.gmail,
+        (received_in == scope.mailbox) | received_in.is_(None),  # history imports record no mailbox
+    ]
+    if sender:
+        filters.append(func.lower(MessageRow.sender_identity) == sender.strip().lower())
+    else:
+        filters.append(func.lower(MessageRow.sender_identity).in_(scope.team | scope.boxes))
+    if days is not None and days > 0:
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        filters.append(MessageRow.sent_at >= cutoff)
+    query = select(MessageRow).where(*filters).order_by(MessageRow.sent_at, MessageRow.id)
     with Session(engine) as session:
         return [
             _Candidate(r.id, r.provider_msg_id, r.sender_identity.lower(), r.direction is Direction.outbound)
@@ -239,10 +251,18 @@ def _write(session: Session, company_id: UUID, found: list[_Found], report: Repo
     report.to_label = len(label_candidates(session, company_id))  # counted here so a preview sees the repaired rows
 
 
-def reattribute(engine: Engine, mailboxes: Mailboxes, mailbox: str, *, apply: bool) -> Report:
+def reattribute(
+    engine: Engine,
+    mailboxes: Mailboxes,
+    mailbox: str,
+    *,
+    apply: bool,
+    days: int | None = None,
+    sender: str | None = None,
+) -> Report:
     """Repair the mail of one connected mailbox. `apply=False` changes nothing."""
-    scope = _scope(engine, mailbox.strip().lower())
-    candidates = _candidates(engine, scope)
+    scope = _scope(engine, mailbox.strip().lower(), sender=sender)
+    candidates = _candidates(engine, scope, days=days, sender=sender)
     report = Report(company_id=scope.company_id)
     found = _read_all(mailboxes(scope.mailbox), scope, candidates, report)
     if apply and report.unrecoverable and report.unrecoverable == len(candidates):

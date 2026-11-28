@@ -9,6 +9,7 @@ numbers, never subjects or text: do not paste it anywhere public.
 
 import argparse
 import sys
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import Engine
@@ -21,6 +22,7 @@ from app.contracts import Channel
 from app.core.settings import Settings, get_settings
 from app.db.session import make_engine
 from app.ingestion.repository import resolve_channel_account
+from app.pipeline import redraft
 from app.workflows.reattribute import RepairRefusedError, Report, reattribute
 from app.workflows.reattribute_labels import DEFAULT_MAX_CALLS, LabelReport, label_senders
 from app.workflows.reattribute_replies import CaseToCheck
@@ -91,9 +93,20 @@ def _parsed(argv: list[str] | None) -> argparse.Namespace:
     step.add_argument("--label", action="store_true", help="run the label pass; the worker may stay running")
     parser.add_argument("--worker-stopped", action="store_true", help="confirm the worker is stopped")
     parser.add_argument("--max-calls", type=int, default=DEFAULT_MAX_CALLS, help="model calls allowed for --label")
+    parser.add_argument("--days", type=int, default=None, help="only scan messages sent in the last N days")
+    parser.add_argument("--sender", default=None, help="only repair messages currently stored under this sender email")
+    parser.add_argument(
+        "--redraft",
+        action="store_true",
+        help="after --apply, generate fresh reply drafts for repaired messages",
+    )
     args = parser.parse_args(argv)
     if args.apply and not args.worker_stopped:
         parser.error("--apply needs --worker-stopped: stop the worker first")
+    if args.redraft and not args.apply:
+        parser.error("--redraft requires --apply")
+    if args.days is not None and args.days < 1:
+        parser.error("--days must be at least 1")
     if args.max_calls < 1:
         parser.error("--max-calls must be at least 1")
     return args
@@ -127,8 +140,28 @@ def main(argv: list[str] | None = None) -> int:
         lambda address: real_mailbox(registry.gmail_mailbox(settings, address)),
         args.mailbox,
         apply=args.apply,
+        days=args.days,
+        sender=args.sender,
     )
     sys.stdout.write(render(report, applied=args.apply))
+    if args.apply and args.redraft and report.company_id is not None:
+        now = datetime.now(UTC)
+        drafted = 0
+        for change in report.changes:
+            if change.was_marked_sent:
+                continue
+            req = redraft.Request(
+                company_id=report.company_id,
+                message_id=change.message_id,
+                guidance=None,
+                prefix=f"reattribute:{change.message_id}:",
+                key=f"reattribute:{change.message_id}:1",
+                now=now,
+            )
+            res = redraft.fresh(engine, settings, req, ())
+            if res.revision is not None:
+                drafted += 1
+        sys.stdout.write(f"redrafted: {drafted}\n")
     return 0
 
 
