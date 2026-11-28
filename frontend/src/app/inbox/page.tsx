@@ -850,6 +850,7 @@ function InboxContent() {
               threads={filteredAndSortedThreads}
               loadState={threads.length > 0 && loadState === "error" ? "ready" : loadState}
               isFiltered={Boolean(searchQuery.trim()) || selectedFilterIds.length > 0}
+              groupByUrgency={sortBy === "urgency"}
               selectedThreadId={activeThread?.id || ""}
               checkedIds={checkedIds}
               onToggleCheck={toggleCheckRow}

@@ -20,6 +20,8 @@ interface InboxThreadListProps {
   onDone?: (threadId: string) => void;
   onSnooze?: (threadId: string) => void;
   className?: string;
+  /** When true, pin urgent threads to their own top section regardless of date. */
+  groupByUrgency?: boolean;
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
@@ -41,6 +43,7 @@ export function InboxThreadList({
   threads,
   loadState = "ready",
   isFiltered = false,
+  groupByUrgency = true,
   selectedThreadId,
   checkedIds,
   onToggleCheck,
@@ -61,8 +64,8 @@ export function InboxThreadList({
     const earlierGroup: InboxThread[] = [];
 
     threads.forEach((t) => {
-      // 1. Check if thread is Urgent
-      if (isUrgent(t)) {
+      // 1. Check if thread is Urgent (only when sorting by Urgency)
+      if (groupByUrgency && isUrgent(t)) {
         urgentGroup.push(t);
         return;
       }
@@ -91,7 +94,7 @@ export function InboxThreadList({
 
     // Filter out groups with 0 items
     return groups.filter((g) => g.threads.length > 0);
-  }, [threads]);
+  }, [threads, groupByUrgency]);
 
   if (threads.length === 0) {
     return (

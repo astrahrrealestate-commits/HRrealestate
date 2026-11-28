@@ -26,6 +26,7 @@ from app.pipeline.next_actions import (
     category_brief,
     category_summaries,
     enrich_actions,
+    latest_sort_ts,
     ranked_actions,
     waiting_split,
 )
@@ -109,7 +110,7 @@ def get_category_desk(
         else:
             ranked = all_cat
         if sort == "latest":
-            ranked = sorted(ranked, key=lambda a: a.last_at or a.due_at or "", reverse=True)
+            ranked = sorted(ranked, key=latest_sort_ts, reverse=True)
         page = ranked[offset : offset + limit]
         actions = enrich_actions(session, principal.company_id, viewer, page, now=datetime.now(UTC))
         wait_us, wait_other = waiting_split(session, principal.company_id, cat, viewer, limit=25)

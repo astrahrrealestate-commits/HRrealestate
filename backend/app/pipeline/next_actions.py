@@ -160,6 +160,21 @@ def next_actions(
     return enrich_actions(session, company_id, viewer, ranked[: max(1, limit)], now=ref)
 
 
+def latest_sort_ts(action: NextAction) -> float:
+    """Numeric UTC timestamp for sorting NextAction by newest activity without mixing datetime/str/None."""
+    stamp: datetime | str | None = action.last_at or action.due_at
+    if stamp is None:
+        return 0.0
+    if isinstance(stamp, str):
+        try:
+            stamp = datetime.fromisoformat(stamp)
+        except ValueError:
+            return 0.0
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=UTC)
+    return stamp.timestamp()
+
+
 def ranked_actions(
     session: Session,
     company_id: UUID,
@@ -194,7 +209,7 @@ def ranked_actions(
             seen_cases.add(act.case_id)
         ranked.append(act)
     if sort == "latest":
-        ranked.sort(key=lambda a: a.last_at or a.due_at or "", reverse=True)
+        ranked.sort(key=latest_sort_ts, reverse=True)
     return ranked
 
 

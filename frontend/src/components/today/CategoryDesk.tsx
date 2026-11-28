@@ -458,6 +458,7 @@ export function CategoryDesk({
       return;
     }
     let active = true;
+    setLoading(true);
     getCategoryDesk(activeCategory as BusinessCategory, {
       urgency: urgencyFilter,
       sort: sortOrder,
@@ -465,9 +466,7 @@ export function CategoryDesk({
       offset: 0,
     }).then((data) => {
       if (!active) return;
-      if (!data) {
-        setOffline(true);
-      } else {
+      if (data) {
         if (urgencyFilter === "all" && sortOrder === "priority") {
           writeView(`today.desk.${activeCategory}`, data);
         }

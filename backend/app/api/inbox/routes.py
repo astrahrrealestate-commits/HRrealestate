@@ -783,6 +783,15 @@ def _inbox_base_query(
             )
         )
         base_q = base_q.filter(or_(Case.summary.ilike(pat), msg_match, person_match))
+    latest_msg_at = (
+        select(func.max(MessageRow.sent_at))
+        .select_from(CaseLink)
+        .join(MessageRow, MessageRow.id == CaseLink.message_id)
+        .where(CaseLink.case_id == Case.id, MessageRow.company_id == company_id)
+        .correlate(Case)
+        .scalar_subquery()
+    )
+    activity_at = func.coalesce(latest_msg_at, Case.opened_at)
     if sort == "priority":
         closed_rank = sql_case((Case.state.in_((CaseState.closed, CaseState.resolved)), 1), else_=0)
         urgency_rank = sql_case(
@@ -791,11 +800,11 @@ def _inbox_base_query(
             (Case.urgency == Urgency.normal, 2),
             else_=3,
         )
-        base_q = base_q.order_by(closed_rank.asc(), urgency_rank.asc(), Case.opened_at.desc())
+        base_q = base_q.order_by(closed_rank.asc(), urgency_rank.asc(), activity_at.desc())
     elif sort == "oldest":
-        base_q = base_q.order_by(Case.opened_at.asc())
+        base_q = base_q.order_by(activity_at.asc())
     else:
-        base_q = base_q.order_by(Case.opened_at.desc())
+        base_q = base_q.order_by(activity_at.desc())
     return base_q
 
 
