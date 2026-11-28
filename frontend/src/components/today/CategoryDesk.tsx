@@ -65,9 +65,13 @@ interface CategoryDeskViewProps {
   activeCategory: DashboardTab;
   desk: CategoryDeskData | null;
   loading?: boolean;
+  loadingMore?: boolean;
   offline?: boolean;
   urgencyFilter?: UrgencyFilter;
   onSelectUrgency?: (filter: UrgencyFilter) => void;
+  sortOrder?: "priority" | "latest";
+  onSelectSort?: (sort: "priority" | "latest") => void;
+  onLoadMore?: () => void;
   onSelectCategory: (category: DashboardTab) => void;
   onOpenAction?: (action: CategoryNextAction) => void;
   onAskAstra?: (action: CategoryNextAction) => void;
@@ -83,9 +87,13 @@ export function CategoryDeskView({
   activeCategory,
   desk,
   loading = false,
+  loadingMore = false,
   offline = false,
   urgencyFilter = "all",
   onSelectUrgency,
+  sortOrder = "priority",
+  onSelectSort,
+  onLoadMore,
   onSelectCategory,
   onOpenAction,
   onAskAstra,
@@ -101,12 +109,12 @@ export function CategoryDeskView({
 
   const allActions = useMemo(() => desk?.actions ?? [], [desk?.actions]);
   const emergencyCount = useMemo(
-    () => allActions.filter((a) => a.urgency === "emergency").length,
-    [allActions]
+    () => desk?.emergency_count ?? allActions.filter((a) => a.urgency === "emergency").length,
+    [desk?.emergency_count, allActions]
   );
   const urgentCount = useMemo(
-    () => allActions.filter((a) => a.urgency === "high").length,
-    [allActions]
+    () => desk?.urgent_count ?? allActions.filter((a) => a.urgency === "high").length,
+    [desk?.urgent_count, allActions]
   );
   const filteredActions = useMemo(() => {
     if (urgencyFilter === "emergency") return allActions.filter((a) => a.urgency === "emergency");
@@ -120,8 +128,10 @@ export function CategoryDeskView({
   const [showAllActions, setShowAllActions] = useState(false);
   const radarRef = React.useRef<HTMLDivElement>(null);
 
-  const visibleActions = showAllActions ? filteredActions : filteredActions.slice(0, 5);
-  const hasHiddenActions = filteredActions.length > 5;
+  const visibleActions = onLoadMore || showAllActions ? filteredActions : filteredActions.slice(0, 10);
+  const hasServerMore = Boolean(onLoadMore && desk?.has_more);
+  const totalLabel = desk?.total && desk.total > filteredActions.length ? `${filteredActions.length} of ${desk.total}` : `${filteredActions.length}`;
+  const hasHiddenActions = !onLoadMore && filteredActions.length > 10;
 
   return (
     <section
@@ -175,6 +185,34 @@ export function CategoryDeskView({
                   {waitingForUs.length} Owed by Us · {waitingForOther.length} Owed by Others
                 </span>
               </button>
+            )}
+            {onSelectSort && !offline && (
+              <div
+                role="group"
+                aria-label="Sort order"
+                className="inline-flex items-center rounded-lg border border-[var(--line)] p-0.5 bg-[var(--bg)] text-[11.5px] font-medium shrink-0 self-start sm:self-auto"
+              >
+                {(
+                  [
+                    { id: "priority", text: "Urgency" },
+                    { id: "latest", text: "Latest" },
+                  ] as const
+                ).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => onSelectSort(s.id)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md transition-colors cursor-pointer whitespace-nowrap",
+                      sortOrder === s.id
+                        ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                        : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+                    )}
+                  >
+                    {s.text}
+                  </button>
+                ))}
+              </div>
             )}
             {onSelectUrgency && !offline && (
               <div
@@ -249,7 +287,16 @@ export function CategoryDeskView({
                   </div>
                 );
               })}
-              {hasHiddenActions && (
+              {hasServerMore ? (
+                <button
+                  type="button"
+                  onClick={onLoadMore}
+                  disabled={loadingMore}
+                  className="w-full py-2.5 text-center text-[12px] font-semibold text-[var(--accent-ink)] hover:bg-[var(--selected)] border-t border-[var(--line)] cursor-pointer transition-colors disabled:opacity-50"
+                >
+                  {loadingMore ? "Loading more…" : `Load more (${totalLabel} shown)`}
+                </button>
+              ) : hasHiddenActions ? (
                 <button
                   type="button"
                   onClick={() => setShowAllActions((prev) => !prev)}
@@ -257,7 +304,7 @@ export function CategoryDeskView({
                 >
                   {showAllActions ? "Show fewer" : `Show all ${filteredActions.length} items`}
                 </button>
-              )}
+              ) : null}
             </div>
           ) : !offline && !loading ? (
             <div className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--bg)]/50 px-4 py-5 text-center text-[12.5px] text-[var(--ink-3)]">
@@ -383,8 +430,10 @@ export function CategoryDesk({
   const [summaries, setSummaries] = useCachedState<CategorySummaryItem[]>("today.categories", fallbackCategorySummaries());
   const [activeCategory, setActiveCategory] = useCachedState<DashboardTab>("today.category", "finance");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
+  const [sortOrder, setSortOrder] = useState<"priority" | "latest">("priority");
   const [desk, setDesk] = useState<CategoryDeskData | null>(() => readView(`today.desk.${activeCategory}`) ?? null);
   const [loading, setLoading] = useState<boolean>(desk === null);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const [offline, setOffline] = useState<boolean>(false);
 
   useEffect(() => {
@@ -409,12 +458,19 @@ export function CategoryDesk({
       return;
     }
     let active = true;
-    getCategoryDesk(activeCategory as BusinessCategory).then((data) => {
+    getCategoryDesk(activeCategory as BusinessCategory, {
+      urgency: urgencyFilter,
+      sort: sortOrder,
+      limit: 10,
+      offset: 0,
+    }).then((data) => {
       if (!active) return;
       if (!data) {
         setOffline(true);
       } else {
-        writeView(`today.desk.${activeCategory}`, data);
+        if (urgencyFilter === "all" && sortOrder === "priority") {
+          writeView(`today.desk.${activeCategory}`, data);
+        }
         setDesk(data);
       }
       setLoading(false);
@@ -422,7 +478,7 @@ export function CategoryDesk({
     return () => {
       active = false;
     };
-  }, [activeCategory, offline]);
+  }, [activeCategory, urgencyFilter, sortOrder, offline]);
 
   const handleSelect = (category: DashboardTab) => {
     setUrgencyFilter("all");
@@ -432,11 +488,40 @@ export function CategoryDesk({
     setActiveCategory(category);
   };
 
+  const handleLoadMore = async () => {
+    if (loadingMore || activeCategory === "all" || !desk) return;
+    setLoadingMore(true);
+    const data = await getCategoryDesk(activeCategory as BusinessCategory, {
+      urgency: urgencyFilter,
+      sort: sortOrder,
+      limit: 20,
+      offset: desk.actions.length,
+    });
+    if (data) {
+      setDesk((prev) =>
+        prev
+          ? {
+              ...data,
+              actions: [...prev.actions, ...data.actions.filter((a) => !prev.actions.some((p) => p.id === a.id))],
+            }
+          : data
+      );
+    }
+    setLoadingMore(false);
+  };
+
   const refreshDesk = async () => {
     if (activeCategory === "all") return;
-    const data = await getCategoryDesk(activeCategory as BusinessCategory);
+    const data = await getCategoryDesk(activeCategory as BusinessCategory, {
+      urgency: urgencyFilter,
+      sort: sortOrder,
+      limit: Math.max(10, desk?.actions.length ?? 10),
+      offset: 0,
+    });
     if (data) {
-      writeView(`today.desk.${activeCategory}`, data);
+      if (urgencyFilter === "all" && sortOrder === "priority") {
+        writeView(`today.desk.${activeCategory}`, data);
+      }
       setDesk(data);
     }
   };
@@ -473,9 +558,13 @@ export function CategoryDesk({
       activeCategory={activeCategory}
       desk={desk}
       loading={loading}
+      loadingMore={loadingMore}
       offline={offline}
       urgencyFilter={urgencyFilter}
       onSelectUrgency={setUrgencyFilter}
+      sortOrder={sortOrder}
+      onSelectSort={setSortOrder}
+      onLoadMore={handleLoadMore}
       onSelectCategory={handleSelect}
       onOpenAction={(action) => router.push(action.target_url || "/inbox")}
       onAskAstra={onAskAstra}

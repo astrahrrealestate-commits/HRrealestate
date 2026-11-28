@@ -42,6 +42,10 @@ router = APIRouter(
 class CategoryDeskResponse(BaseModel):
     brief: str | None
     actions: list[NextAction]
+    total: int = 0
+    has_more: bool = False
+    emergency_count: int = 0
+    urgent_count: int = 0
     waiting_for_us: list[NextAction] = Field(default_factory=list)
     waiting_for_other: list[NextAction] = Field(default_factory=list)
 
@@ -89,18 +93,34 @@ def get_category_desk(
     category: ShownCategory,
     engine: Annotated[Engine, Depends(get_engine)],
     principal: Annotated[Principal, Depends(require_session)],
-    limit: int = Query(default=25, ge=1, le=50),
+    limit: int = Query(default=10, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     urgency: Literal["all", "emergency", "high"] = Query(default="all"),
+    sort: Literal["priority", "latest"] = Query(default="priority"),
 ) -> CategoryDeskResponse:
     with Session(engine) as session:
         viewer, brixx = _brixx(session, principal)
         cat = Category(category)
-        ranked = ranked_actions(session, principal.company_id, cat, viewer, brixx_items=brixx, urgency_filter=urgency)
-        actions = enrich_actions(session, principal.company_id, viewer, ranked[:limit], now=datetime.now(UTC))
-        wait_us, wait_other = waiting_split(session, principal.company_id, cat, viewer, limit=limit)
+        all_cat = ranked_actions(session, principal.company_id, cat, viewer, brixx_items=brixx, urgency_filter="all")
+        if urgency == "emergency":
+            ranked = [a for a in all_cat if a.urgency.value == "emergency"]
+        elif urgency == "high":
+            ranked = [a for a in all_cat if a.urgency.value == "high"]
+        else:
+            ranked = all_cat
+        if sort == "latest":
+            ranked = sorted(ranked, key=lambda a: (a.last_at or a.due_at or ""), reverse=True)
+        page = ranked[offset : offset + limit]
+        actions = enrich_actions(session, principal.company_id, viewer, page, now=datetime.now(UTC))
+        wait_us, wait_other = waiting_split(session, principal.company_id, cat, viewer, limit=25)
+    total_matching = len(ranked)
     return CategoryDeskResponse(
-        brief=category_brief(ranked),  # every action of the category, not only the page shown
+        brief=category_brief(all_cat),  # every action of the category, not only the page shown
         actions=actions,
+        total=total_matching,
+        has_more=(offset + len(actions)) < total_matching,
+        emergency_count=sum(1 for a in all_cat if a.urgency.value == "emergency"),
+        urgent_count=sum(1 for a in all_cat if a.urgency.value == "high"),
         waiting_for_us=wait_us,
         waiting_for_other=wait_other,
     )

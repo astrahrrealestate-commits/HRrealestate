@@ -96,7 +96,7 @@ function InboxContent() {
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilterIds, setSelectedFilterIds] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<string>("urgency");
+  const [sortBy, setSortBy] = useState<string>("latest");
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -272,11 +272,25 @@ function InboxContent() {
     return chans.length === 1 ? chans[0].slice(3) : "all";
   }, [selectedFilterIds]);
 
+  const apiSort = useMemo<"recent" | "oldest" | "priority">(() => {
+    if (sortBy === "urgency") return "priority";
+    if (sortBy === "oldest") return "oldest";
+    return "recent";
+  }, [sortBy]);
+
   const inFlightRef = useRef(false);
   const fetchThreads = useCallback(() => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
-    getInboxThreads({ limit: 20, offset: 0, category: apiCategory, channel: apiChannel })
+    getInboxThreads({
+      limit: 20,
+      offset: 0,
+      category: apiCategory,
+      channel: apiChannel,
+      tab: activeTab,
+      search: searchQuery,
+      sort: apiSort,
+    })
       .then(({ threads: live, isLive, total, hasMore: more }) => {
         if (!mountedRef.current) return;
         if (!isLive) {
@@ -313,11 +327,14 @@ function InboxContent() {
       .finally(() => {
         inFlightRef.current = false;
       });
-  }, [apiCategory, apiChannel, setHasMore, setThreads, setTotalServerThreads]);
+  }, [activeTab, apiCategory, apiChannel, apiSort, searchQuery, setHasMore, setThreads, setTotalServerThreads]);
 
   useEffect(() => {
-    fetchThreads();
-  }, [apiCategory, apiChannel, fetchThreads]);
+    const timer = setTimeout(() => {
+      fetchThreads();
+    }, searchQuery.trim() ? 250 : 0);
+    return () => clearTimeout(timer);
+  }, [activeTab, apiCategory, apiChannel, apiSort, searchQuery, fetchThreads]);
 
   // Poll live threads every 8s while visible; background worker handles Gmail ingestion.
   usePolling(fetchThreads, 8000);
@@ -379,6 +396,11 @@ function InboxContent() {
       const { threads: moreThreads, hasMore: more } = await getInboxThreads({
         limit: 20,
         offset: threads.length,
+        category: apiCategory,
+        channel: apiChannel,
+        tab: activeTab,
+        search: searchQuery,
+        sort: apiSort,
       });
       if (moreThreads && moreThreads.length > 0) {
         setThreads((prev) => {
@@ -393,7 +415,7 @@ function InboxContent() {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, hasMore, threads.length, setHasMore, setThreads]);
+  }, [activeTab, apiCategory, apiChannel, apiSort, hasMore, isLoadingMore, searchQuery, setHasMore, setThreads, threads.length]);
 
   const handleApproveDraft = async (
     threadId: string,
@@ -834,7 +856,7 @@ function InboxContent() {
               onSelectThread={handleSelectThread}
               onDone={handleMarkDone}
               onSnooze={handleSnooze}
-              hasMore={hasMore && !searchQuery.trim() && selectedFilterIds.length === 0}
+              hasMore={hasMore}
               isLoadingMore={isLoadingMore}
               onLoadMore={handleLoadMore}
               className={layoutMode === "horizontal" ? "border-r-0 border-b border-[var(--line)]" : ""}
