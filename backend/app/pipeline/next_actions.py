@@ -194,7 +194,7 @@ def ranked_actions(
             seen_cases.add(act.case_id)
         ranked.append(act)
     if sort == "latest":
-        ranked.sort(key=lambda a: (a.last_at or a.due_at or ""), reverse=True)
+        ranked.sort(key=lambda a: a.last_at or a.due_at or "", reverse=True)
     return ranked
 
 

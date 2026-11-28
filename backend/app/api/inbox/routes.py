@@ -938,7 +938,7 @@ def get_inbox_threads(
             sort=sort_mode,
             include_html=inc_html,
         )
-        total_cases = _inbox_base_query(
+        raw_total = _inbox_base_query(
             session,
             principal.company_id,
             category=cat,
@@ -947,6 +947,7 @@ def get_inbox_threads(
             sort=sort_mode,
             now_dt=datetime.now(UTC),
         ).count()
+        total_cases = raw_total if isinstance(raw_total, int) else 0
     if not principal.access.can("inbox"):
         live_threads = [headline_only(t) for t in live_threads]
 
