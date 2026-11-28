@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.context.shown_sender import saved_names, shown_sender_name
-from app.contracts import ActionType, ButtonChoice, CaseState, Channel
+from app.contracts import ActionType, ButtonChoice, CaseState, Channel, OutboundMode
 from app.core.logging import get_logger
 from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind
 from app.db.models import ActionRow, Approval, Case, CaseEvent, Company, MessageRow
@@ -161,29 +161,35 @@ def remember_quote(session: Session, action: ActionRow, message_ref: str | None)
 
 
 def record_dispatch(session: Session, case: Case, action: ActionRow | None, at: datetime) -> None:
-    """Case moves to waiting_on_third_party with an audit event and a summary note (once)."""
-    from_state = case.state
-    case.state = CaseState.waiting_on_third_party
-    via_gmail = action is not None and (
-        getattr(action, "channel", None) == Channel.gmail or "gmail" in str(action.payload or "").lower()
-    )
-    note = (
-        f"Contractor dispatch approved & dispatched via {'Gmail' if via_gmail else 'WhatsApp'} on "
-        f"{at.strftime('%Y-%m-%d %H:%M UTC')}. Waiting on contractor arrival/resolution."
-    )
-    existing = (case.summary or "").strip()
-    if "Contractor dispatch approved" not in existing:
-        case.summary = f"{existing}\n\n[Action Taken: {note}]" if existing else f"[Action Taken: {note}]"
-        case.summary_version = (case.summary_version or 0) + 1
-    session.add(
-        CaseEvent(
-            company_id=case.company_id,
-            case_id=case.id,
-            kind=CaseEventKind.state_change,
-            from_state=from_state,
-            to_state=CaseState.waiting_on_third_party,
-            note=note,
-            actor="owner",
+    """Record owner action dispatch; contractor requests move to waiting_on_third_party, while replies wait until
+    actually sent (`execute_action_wf` / outbound sync) so failed sends or Gmail drafts do not hide active threads."""
+    if action is not None and action.type is ActionType.request_contractor:
+        from_state = case.state
+        case.state = CaseState.waiting_on_third_party
+        via_gmail = getattr(action, "channel", None) == Channel.gmail or "gmail" in str(action.payload or "").lower()
+        note = (
+            f"Contractor dispatch approved & dispatched via {'Gmail' if via_gmail else 'WhatsApp'} on "
+            f"{at.strftime('%Y-%m-%d %H:%M UTC')}. Waiting on contractor arrival/resolution."
         )
-    )
-    log.info("inbox.approval_recorded", case_id=str(case.id))
+        existing = (case.summary or "").strip()
+        if "Contractor dispatch approved" not in existing:
+            case.summary = f"{existing}\n\n[Action Taken: {note}]" if existing else f"[Action Taken: {note}]"
+            case.summary_version = (case.summary_version or 0) + 1
+        session.add(
+            CaseEvent(
+                company_id=case.company_id,
+                case_id=case.id,
+                kind=CaseEventKind.state_change,
+                from_state=from_state,
+                to_state=CaseState.waiting_on_third_party,
+                note=note,
+                actor="owner",
+            )
+        )
+        log.info("inbox.approval_recorded", case_id=str(case.id))
+        return
+    company = session.get(Company, case.company_id)
+    if company is not None and getattr(company, "outbound_mode", None) is OutboundMode.draft:
+        log.info("inbox.draft_queued_for_gmail", case_id=str(case.id))
+        return
+    log.info("inbox.reply_queued_for_send", case_id=str(case.id))

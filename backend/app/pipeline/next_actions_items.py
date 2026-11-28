@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -86,6 +87,47 @@ def as_utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
+def _to_local_dt(stamp: datetime | date | str | None, tz_name: str = "Europe/Amsterdam") -> datetime | None:
+    if stamp is None:
+        return None
+    if isinstance(stamp, str):
+        try:
+            stamp = datetime.fromisoformat(stamp)
+        except ValueError:
+            return None
+    if isinstance(stamp, date) and not isinstance(stamp, datetime):
+        return datetime(stamp.year, stamp.month, stamp.day, tzinfo=ZoneInfo(tz_name))
+    return as_utc(stamp).astimezone(ZoneInfo(tz_name))
+
+
+def period_key(stamp: datetime | date | str | None, tz_name: str = "Europe/Amsterdam") -> str | None:
+    """Return `YYYY-MM` in company timezone for period pickers, or None if no date."""
+    local = _to_local_dt(stamp, tz_name)
+    return f"{local.year:04d}-{local.month:02d}" if local is not None else None
+
+
+def matches_period(
+    stamp: datetime | date | str | None,
+    period: str,
+    ref: datetime,
+    tz_name: str = "Europe/Amsterdam",
+) -> bool:
+    """True when `stamp` falls inside `all`, `this_week` (last 7d), `YYYY-MM`, or `YYYY`."""
+    p = (period or "all").strip().lower()
+    if not p or p == "all":
+        return True
+    local = _to_local_dt(stamp, tz_name)
+    if local is None:
+        return False
+    if p == "this_week":
+        return local >= as_utc(ref).astimezone(ZoneInfo(tz_name)) - timedelta(days=7)
+    if len(p) == 7 and p[4] == "-":
+        return f"{local.year:04d}-{local.month:02d}" == p
+    if len(p) == 4 and p.isdigit():
+        return f"{local.year:04d}" == p
+    return True
+
+
 def _older(when: datetime | date | None) -> bool:
     """Past the desk window; an item with no date of its own stays."""
     if when is None:
@@ -147,6 +189,7 @@ def load_quote_reviews(session: Session, company_id: UUID, viewer: ActionViewer)
                         approval_id=None,
                         prepared=f"{verdict} ({over} overcharge)",
                         target_url=f"/inbox?thread={case.id}" if case is not None else "/money",
+                        last_at=as_utc(review.created_at),
                     ),
                     as_utc(review.created_at),
                 )
@@ -161,7 +204,12 @@ def load_overdue_waits(
         select(WaitRow, Case, Person.display_name)
         .join(Case, (Case.id == WaitRow.case_id) & (Case.company_id == company_id))
         .outerjoin(Person, (Person.id == WaitRow.party_person_id) & (Person.company_id == company_id))
-        .where(WaitRow.company_id == company_id, WaitRow.status == WaitStatus.waiting, WaitRow.expected_by <= now)
+        .where(
+            WaitRow.company_id == company_id,
+            WaitRow.status == WaitStatus.waiting,
+            WaitRow.expected_by <= now,
+            Case.state.in_(OPEN_STATES),
+        )
         .order_by(WaitRow.expected_by.asc())
     ).all()
     out: list[tuple[NextAction, datetime]] = []
@@ -186,6 +234,7 @@ def load_overdue_waits(
                     approval_id=None,
                     prepared=None,
                     target_url=f"/inbox?thread={case.id}",
+                    last_at=as_utc(wait.expected_by),
                 ),
                 as_utc(wait.expected_by),
             )
@@ -229,6 +278,7 @@ def load_document_reviews(
         title = (
             f"Review {doc.doc_type}: {strip_risky(doc.title)}" if viewer.inbox else f"Review {doc.doc_type} document"
         )
+        doc_ts = as_utc(sent[doc.id] or doc.created_at)
         out.append(
             (
                 NextAction(
@@ -243,8 +293,9 @@ def load_document_reviews(
                     approval_id=None,
                     prepared=None,
                     target_url="/inbox" if linked is None else f"/inbox?thread={linked[0]}",
+                    last_at=doc_ts,
                 ),
-                as_utc(doc.created_at),
+                doc_ts,
             )
         )
     return out

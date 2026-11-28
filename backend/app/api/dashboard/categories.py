@@ -23,12 +23,14 @@ from app.pipeline.next_actions import (
     BrixxAttentionLike,
     CategorySummary,
     NextAction,
+    action_periods,
     category_brief,
     category_summaries,
     enrich_actions,
     latest_sort_ts,
+    matches_period,
     ranked_actions,
-    waiting_split,
+    waiting_split_page,
 )
 
 ShownCategory = Literal["maintenance", "finance", "legal", "business", "administration", "new_projects"]
@@ -47,8 +49,12 @@ class CategoryDeskResponse(BaseModel):
     has_more: bool = False
     emergency_count: int = 0
     urgent_count: int = 0
+    low_count: int = 0
     waiting_for_us: list[NextAction] = Field(default_factory=list)
     waiting_for_other: list[NextAction] = Field(default_factory=list)
+    waiting_for_us_total: int = 0
+    waiting_for_other_total: int = 0
+    available_periods: list[str] = Field(default_factory=list)
 
 
 def _today() -> date:
@@ -96,34 +102,57 @@ def get_category_desk(
     principal: Annotated[Principal, Depends(require_session)],
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    urgency: Literal["all", "emergency", "high"] = Query(default="all"),
+    urgency: Literal["all", "emergency", "high", "low", "urgent"] = Query(default="all"),
     sort: Literal["priority", "latest"] = Query(default="priority"),
+    period: str = Query(default="all"),
+    radar_limit: int = Query(default=15, ge=1, le=200),
 ) -> CategoryDeskResponse:
+    now = datetime.now(UTC)
     with Session(engine) as session:
         viewer, brixx = _brixx(session, principal)
         cat = Category(category)
         all_cat = ranked_actions(session, principal.company_id, cat, viewer, brixx_items=brixx, urgency_filter="all")
+        periods = action_periods(all_cat)
+        in_period = [a for a in all_cat if matches_period(a, period, now)] if period != "all" else all_cat
         if urgency == "emergency":
-            ranked = [a for a in all_cat if a.urgency.value == "emergency"]
+            ranked = [a for a in in_period if a.urgency.value == "emergency"]
         elif urgency == "high":
-            ranked = [a for a in all_cat if a.urgency.value == "high"]
+            ranked = [a for a in in_period if a.urgency.value == "high"]
+        elif urgency == "low":
+            ranked = [a for a in in_period if a.urgency.value in ("normal", "low")]
+        elif urgency == "urgent":
+            ranked = [a for a in in_period if a.urgency.value in ("emergency", "high")]
         else:
-            ranked = all_cat
+            ranked = in_period
         if sort == "latest":
             ranked = sorted(ranked, key=latest_sort_ts, reverse=True)
         page = ranked[offset : offset + limit]
-        actions = enrich_actions(session, principal.company_id, viewer, page, now=datetime.now(UTC))
-        wait_us, wait_other = waiting_split(session, principal.company_id, cat, viewer, limit=25)
+        actions = enrich_actions(session, principal.company_id, viewer, page, now=now)
+        wait_us, wait_other, wait_us_total, wait_other_total = waiting_split_page(
+            session,
+            principal.company_id,
+            cat,
+            viewer,
+            now=now,
+            limit=radar_limit,
+            urgency_filter=urgency,
+            sort=sort,
+            period=period,
+        )
     total_matching = len(ranked)
     return CategoryDeskResponse(
         brief=category_brief(all_cat),  # every action of the category, not only the page shown
         actions=actions,
         total=total_matching,
         has_more=(offset + len(actions)) < total_matching,
-        emergency_count=sum(1 for a in all_cat if a.urgency.value == "emergency"),
-        urgent_count=sum(1 for a in all_cat if a.urgency.value == "high"),
+        emergency_count=sum(1 for a in in_period if a.urgency.value == "emergency"),
+        urgent_count=sum(1 for a in in_period if a.urgency.value == "high"),
+        low_count=sum(1 for a in in_period if a.urgency.value in ("normal", "low")),
         waiting_for_us=wait_us,
         waiting_for_other=wait_other,
+        waiting_for_us_total=wait_us_total,
+        waiting_for_other_total=wait_other_total,
+        available_periods=periods,
     )
 
 
@@ -163,6 +192,7 @@ def resolve_followup_case(
             work_repo.resolve_case_waits(session, principal.company_id, case_id)
             work_repo.close_case_tasks(session, principal.company_id, case_id, source="promise")
             work_repo.close_case_tasks(session, principal.company_id, case_id, source="reminder")
+            case_repo.expire_pending_reply_drafts(session, principal.company_id, case_id)
             if case.state in (CaseState.open, CaseState.waiting_on_owner, CaseState.waiting_on_third_party):
                 case_repo.transition(session, principal.company_id, case_id, CaseState.resolved, actor="owner")
     except NotFoundError:

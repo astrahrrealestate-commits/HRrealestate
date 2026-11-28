@@ -14,11 +14,11 @@ from sqlalchemy.orm import Session
 
 from app.channels.gmail.forward import FORWARD_MARKERS
 from app.context.person_profile import refresh_profile_deterministic
-from app.contracts import CaseState, Category, Channel, Direction, Urgency, assert_transition
+from app.contracts import ActionType, CaseState, Category, Channel, Direction, Urgency, assert_transition
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
-from app.db.enums import CaseEventKind, LinkMethod
-from app.db.models import Case, CaseEvent, CaseLink, Lease, LeaseParty, MessageRow
+from app.db.enums import ActionStatus, ApprovalStatus, CaseEventKind, LinkMethod
+from app.db.models import ActionRow, Approval, Case, CaseEvent, CaseLink, Lease, LeaseParty, MessageRow
 
 WHATSAPP_THREAD_WINDOW = timedelta(hours=72)
 OPEN_STATES = (CaseState.open, CaseState.waiting_on_owner, CaseState.waiting_on_third_party)
@@ -291,13 +291,70 @@ def link_thread_outbound(session: Session, company_id: UUID, case_id: UUID, mess
     return [m for m in found if link_message(session, company_id, case_id, m, LinkMethod.thread, 1.0)]
 
 
+def expire_pending_reply_drafts(
+    session: Session,
+    company_id: UUID,
+    case_id: UUID,
+    *,
+    before: datetime | None = None,
+) -> int:
+    """Expire pending draft approvals on `case_id` (e.g. owner replied straight in Gmail or closed the case)."""
+    action_ids = list(
+        session.scalars(
+            select(ActionRow.id).where(
+                ActionRow.company_id == company_id,
+                ActionRow.case_id == case_id,
+                ActionRow.type.in_([ActionType.reply_draft, ActionType.request_contractor]),
+            )
+        ).all()
+    )
+    if not action_ids:
+        return 0
+    stmt = (
+        update(Approval)
+        .where(
+            Approval.company_id == company_id,
+            Approval.action_id.in_(action_ids),
+            Approval.status == ApprovalStatus.pending,
+        )
+        .values(status=ApprovalStatus.expired)
+    )
+    if before is not None:
+        stmt = stmt.where(Approval.created_at <= before)
+    res = session.execute(stmt)
+    expired = int(res.rowcount or 0)  # type: ignore[attr-defined]
+    if expired:
+        session.execute(
+            update(ActionRow)
+            .where(
+                ActionRow.company_id == company_id,
+                ActionRow.id.in_(action_ids),
+                ActionRow.status == ActionStatus.pending_approval,
+            )
+            .values(status=ActionStatus.superseded)
+        )
+        session.flush()
+    return expired
+
+
+def close_case_pending(session: Session, company_id: UUID, case_id: UUID) -> None:
+    """Close open waits/promises and expire pending approvals when a case is resolved or marked done."""
+    from app.pipeline import work_repo
+
+    work_repo.resolve_case_waits(session, company_id, case_id)
+    work_repo.close_case_tasks(session, company_id, case_id, source="promise")
+    work_repo.close_case_tasks(session, company_id, case_id, source="reminder")
+    expire_pending_reply_drafts(session, company_id, case_id)
+
+
 def link_outbound_reply(session: Session, message_id: UUID) -> UUID | None:
     """An owner reply sent outside EstateOS (e.g. straight from Gmail) joins the open case holding its thread.
-    The id comes from our own persist step; everything after is scoped to the message's company. Idempotent."""
+    Expires any older pending draft approvals on that case so Dashboard stays in sync. Idempotent."""
     message = session.get(MessageRow, message_id)
     if message is None or message.direction is not Direction.outbound or not message.thread_ref:
         return None
     case_id = thread_case(session, message.company_id, message)
     if case_id is not None:
         link_message(session, message.company_id, case_id, message.id, LinkMethod.thread, 1.0)
+        expire_pending_reply_drafts(session, message.company_id, case_id, before=message.sent_at)
     return case_id

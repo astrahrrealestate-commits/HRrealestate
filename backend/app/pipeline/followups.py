@@ -20,6 +20,7 @@ from app.contracts import (
     Direction,
     Entities,
     EscalatePayload,
+    OutboundMode,
     RequestContractorPayload,
     Suspicious,
     Understanding,
@@ -28,8 +29,19 @@ from app.contracts import (
 from app.core.errors import AgentFailedError, NotFoundError
 from app.core.logging import get_logger
 from app.core.settings import Settings
-from app.db.enums import ActionStatus, ApprovalStatus, PersonKind, WaitStatus
-from app.db.models import ActionRow, Approval, Case, CaseLink, Company, MessageRow, Person, UnderstandingRow, WaitRow
+from app.db.enums import ActionStatus, ApprovalStatus, PersonKind, SendStatus, WaitStatus
+from app.db.models import (
+    ActionRow,
+    Approval,
+    Case,
+    CaseLink,
+    Company,
+    MessageRow,
+    Person,
+    Send,
+    UnderstandingRow,
+    WaitRow,
+)
 from app.llm.agents.proposer import Persona, ProposerContext, proposer_prompt, proposer_spec
 from app.llm.calls import CallContext, run_agent
 from app.pipeline import approvals, case_repo, work_repo
@@ -90,15 +102,25 @@ def _case_agreed_due(session: Session, company: Company, case_id: UUID, now: dat
 
 
 def open_waits_after_execute(engine: Engine, action_id: UUID, *, now: datetime) -> UUID | None:
-    """A contractor request always waits for the contractor; a reply waits for the tenant only when the case is
-    waiting on a third party. Uses any agreed promised date (09:00 local next morning), else `chase_after_days`
-    business days later (company timezone)."""
+    """A contractor request always waits for the contractor; a reply waits for the tenant only when actually sent in
+    `outbound_mode = send` and waiting on a third party (in `draft` mode, a Gmail draft was saved—wait for actual
+    outbound sync). Uses any agreed promised date (09:00 local next morning), else `chase_after_days` business days."""
     with Session(engine) as session, session.begin():
         action = session.get(ActionRow, action_id)
         if action is None or action.status is not ActionStatus.executed:
             return None
         case = case_repo.get_case(session, action.company_id, action.case_id)
         company = _company(session, action.company_id)
+        if action.type is ActionType.reply_draft and company.outbound_mode is OutboundMode.draft:
+            draft_only = session.scalar(
+                select(Send.id).where(
+                    Send.company_id == action.company_id,
+                    Send.action_id == action.id,
+                    Send.status == SendStatus.sent,
+                )
+            )
+            if draft_only is not None:
+                return None
         party: UUID | None
         if action.type is ActionType.request_contractor:
             party, about = UUID(action.payload["contractor_person_id"]), "Contractor to respond to our request"
@@ -124,6 +146,13 @@ def open_waits_after_execute(engine: Engine, action_id: UUID, *, now: datetime) 
                 now, company.chase_after_days, company.timezone
             )
             work_repo.record_owner_promise(session, action.company_id, case.id, title=title, due_at=due)
+            return None
+        elif (
+            action.type is ActionType.reply_draft
+            and company.outbound_mode is OutboundMode.send
+            and case.state is CaseState.open
+        ):
+            # A real send in `send` mode with no explicit promise/wait moves to third-party wait if reply expected.
             return None
         else:
             return None

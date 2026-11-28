@@ -38,6 +38,7 @@ from app.pipeline.next_actions_items import (
     load_document_reviews,
     load_overdue_waits,
     load_quote_reviews,
+    matches_period,
     one_line,
 )
 
@@ -49,6 +50,7 @@ __all__ = [
     "all_pipeline_items",
     "enrich_actions",
     "waiting_split",
+    "waiting_split_page",
 ]
 
 
@@ -77,13 +79,27 @@ def load_approvals(session: Session, company_id: UUID, viewer: ActionViewer) -> 
             Approval.status == ApprovalStatus.pending,
             ActionRow.type == ActionType.reply_draft,
             ActionRow.status != ActionStatus.rejected,
+            Case.state.in_(OPEN_STATES),
         )
     ).all()
+    case_ids = [case.id for _, _, case, _ in rows]
+    newest_of = _newest_per_case(session, company_id, case_ids) if case_ids else {}
     out: list[RankedItem] = []
     for approval, action, case, name in rows:
         cat = current_category(case.category.value)
         if cat is Category.spam:
             continue
+        newest_pair = newest_of.get(case.id)
+        if newest_pair is not None:
+            newest_msg = newest_pair[0]
+            newest_at = as_utc(newest_msg.sent_at)
+            if (newest_msg.direction is Direction.outbound or is_owner_authored(newest_msg)) and newest_at >= as_utc(
+                approval.created_at
+            ):
+                continue
+            item_ts = newest_at
+        else:
+            item_ts = as_utc(approval.created_at)
         party = viewer.party(name)
         why = (one_line(case.summary) if viewer.inbox else "") or "Reply draft ready for approval"
         prepared = _first_draft_line(action.payload) if viewer.inbox else None
@@ -101,8 +117,9 @@ def load_approvals(session: Session, company_id: UUID, viewer: ActionViewer) -> 
                     approval_id=approval.id,
                     prepared=prepared,
                     target_url=f"/inbox?thread={case.id}",
+                    last_at=item_ts,
                 ),
-                as_utc(approval.created_at),
+                item_ts,
             )
         )
     return out
@@ -175,6 +192,7 @@ def load_replies_needed(session: Session, company_id: UUID, viewer: ActionViewer
                     approval_id=None,
                     prepared="Draft with Astra" if viewer.inbox else None,
                     target_url=f"/inbox?thread={case.id}",
+                    last_at=as_utc(newest.sent_at),
                 ),
                 as_utc(newest.sent_at),
             )
@@ -285,8 +303,38 @@ def waiting_split(
     *,
     now: datetime | None = None,
     limit: int = 20,
+    urgency_filter: Literal["all", "emergency", "high", "low", "urgent"] = "all",
+    sort: Literal["priority", "latest"] = "priority",
+    period: str = "all",
 ) -> tuple[list[NextAction], list[NextAction]]:
-    """Split open threads in `category` into `(waiting_for_us, waiting_for_other)` without duplicate cases."""
+    """Split open commitments & waits in `category` into `(waiting_for_us, waiting_for_other)` without duplicates."""
+    us, other, _, _ = waiting_split_page(
+        session,
+        company_id,
+        category,
+        viewer,
+        now=now,
+        limit=limit,
+        urgency_filter=urgency_filter,
+        sort=sort,
+        period=period,
+    )
+    return us, other
+
+
+def waiting_split_page(
+    session: Session,
+    company_id: UUID,
+    category: Category,
+    viewer: ActionViewer,
+    *,
+    now: datetime | None = None,
+    limit: int = 20,
+    urgency_filter: Literal["all", "emergency", "high", "low", "urgent"] = "all",
+    sort: Literal["priority", "latest"] = "priority",
+    period: str = "all",
+) -> tuple[list[NextAction], list[NextAction], int, int]:
+    """Split true owner promises & active third-party waits into `(us, other, us_total, other_total)`."""
     ref = as_utc(now or datetime.now(UTC))
     cases = list(
         session.scalars(
@@ -297,7 +345,7 @@ def waiting_split(
     )
     cat_cases = [c for c in cases if current_category(c.category.value) is category]
     if not cat_cases:
-        return [], []
+        return [], [], 0, 0
     cat_ids = [c.id for c in cat_cases]
 
     open_promises: dict[UUID, TaskRow] = {}
@@ -372,41 +420,34 @@ def waiting_split(
                 und_by_msg[mid] = body
 
     urg_rank = {Urgency.emergency: 0, Urgency.high: 1, Urgency.normal: 2, Urgency.low: 3}
-    for_us: list[tuple[tuple[int, int, int, int, float], NextAction]] = []
-    for_other: list[tuple[tuple[int, int, int, float], NextAction]] = []
+    for_us: list[tuple[tuple[object, ...], NextAction]] = []
+    for_other: list[tuple[tuple[object, ...], NextAction]] = []
 
     for c in cat_cases:
+        if urgency_filter == "emergency" and c.urgency is not Urgency.emergency:
+            continue
+        if urgency_filter == "high" and c.urgency is not Urgency.high:
+            continue
+        if urgency_filter == "low" and c.urgency not in (Urgency.normal, Urgency.low):
+            continue
+        if urgency_filter == "urgent" and c.urgency not in (Urgency.emergency, Urgency.high):
+            continue
         promise = open_promises.get(c.id)
         wait = active_waits.get(c.id)
         newest = latest_msgs.get(c.id)
         body = und_by_msg.get(newest.id, {}) if newest is not None else {}
-        requires_reply = body.get("requires_reply", True) if body else True
         approval_id = pending_approvals.get(c.id)
         has_draft = approval_id is not None
         last_at = as_utc(newest.sent_at) if newest is not None else as_utc(c.opened_at)
+        if not matches_period(last_at, period, ref, tz):
+            continue
         days = max(0, (ref - last_at).days)
 
-        is_our_obligation = (
-            promise is not None
-            or c.state is CaseState.waiting_on_owner
-            or (
-                days >= 1
-                and (
-                    has_draft
-                    or (
-                        c.state is CaseState.open
-                        and newest is not None
-                        and newest.direction is Direction.inbound
-                        and not is_owner_authored(newest)
-                        and requires_reply is not False
-                    )
-                )
-            )
-        )
+        # True owner promises only (never duplicate every unanswered inbound email from the main list).
+        is_our_obligation = promise is not None or c.state is CaseState.waiting_on_owner
+        # Genuine awaited deliverables only (active wait or waiting_on_third_party).
         is_their_obligation = not is_our_obligation and (
-            wait is not None
-            or c.state is CaseState.waiting_on_third_party
-            or (newest is not None and (newest.direction is Direction.outbound or is_owner_authored(newest)))
+            wait is not None or c.state is CaseState.waiting_on_third_party
         )
 
         if is_our_obligation:
@@ -422,7 +463,7 @@ def waiting_split(
                 id=f"wait-us:{c.id}",
                 category=category,
                 kind="approve_draft" if has_draft else "reply_needed",
-                title=ob_text or ("Draft ready to send" if has_draft else "Reply / follow-up needed"),
+                title=ob_text or ("Draft ready to send" if has_draft else "Promise / follow-up needed"),
                 why=why_text,
                 urgency=c.urgency,
                 due_at=due_at,
@@ -439,13 +480,16 @@ def waiting_split(
                 chase_count=0,
                 wait_status="promise" if promise is not None else None,
             )
-            has_promise_priority = 0 if (promise is not None or c.state is CaseState.waiting_on_owner) else 1
-            us_key = (
-                0 if overdue_days > 0 else 1,
-                has_promise_priority,
-                -overdue_days,
-                urg_rank.get(c.urgency, 2),
-                -days,
+            us_key: tuple[object, ...] = (
+                (-last_at.timestamp(),)
+                if sort == "latest"
+                else (
+                    0 if overdue_days > 0 else 1,
+                    0 if (promise is not None or c.state is CaseState.waiting_on_owner) else 1,
+                    -overdue_days,
+                    urg_rank.get(c.urgency, 2),
+                    -last_at.timestamp(),
+                )
             )
             for_us.append((us_key, action))
         elif is_their_obligation:
@@ -487,10 +531,17 @@ def waiting_split(
                 wait_status=w_status,
                 wait_id=wait.id if wait is not None else None,
             )
-            for_other.append(((tier, -overdue_days, urg_rank.get(c.urgency, 2), -wait_days), action))
+            other_key: tuple[object, ...] = (
+                (-last_at.timestamp(),)
+                if sort == "latest"
+                else (tier, -overdue_days, urg_rank.get(c.urgency, 2), -last_at.timestamp())
+            )
+            for_other.append((other_key, action))
 
     for_us.sort(key=lambda pair: pair[0])
     for_other.sort(key=lambda pair: pair[0])
+    us_total = len(for_us)
+    other_total = len(for_other)
     us_enriched = enrich_actions(session, company_id, viewer, [a for _, a in for_us[:limit]], now=ref)
     other_enriched = enrich_actions(session, company_id, viewer, [a for _, a in for_other[:limit]], now=ref)
-    return us_enriched, other_enriched
+    return us_enriched, other_enriched, us_total, other_total

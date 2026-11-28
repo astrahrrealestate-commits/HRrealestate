@@ -58,7 +58,16 @@ from app.contracts.prompt_ref import PromptRef
 from app.contracts.proposal import Proposal
 from app.contracts.rag import FactKind, PassageScore, QueryPlan, RerankResult
 from app.contracts.summary import CaseSummary
-from app.contracts.understanding import Category, Entities, SenderRole, Suspicious, Understanding, Urgency, WaitingSide
+from app.contracts.understanding import (
+    Category,
+    Entities,
+    OutboundTriage,
+    SenderRole,
+    Suspicious,
+    Understanding,
+    Urgency,
+    WaitingSide,
+)
 
 __all__ = [
     "ALLOWED",
@@ -107,6 +116,7 @@ __all__ = [
     "Money",
     "NotifyOwnerPayload",
     "OutboundMode",
+    "OutboundTriage",
     "OwnerAnswer",
     "OwnerChoice",
     "OwnerMessage",

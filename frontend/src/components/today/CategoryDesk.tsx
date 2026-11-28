@@ -15,7 +15,9 @@ import {
 } from "@/lib/api";
 import {
   categoryLabel,
+  extractPeriodYears,
   fallbackCategorySummaries,
+  formatPeriodLabel,
   type BusinessCategory,
   type DashboardTab,
   type UrgencyFilter,
@@ -71,7 +73,10 @@ interface CategoryDeskViewProps {
   onSelectUrgency?: (filter: UrgencyFilter) => void;
   sortOrder?: "priority" | "latest";
   onSelectSort?: (sort: "priority" | "latest") => void;
+  periodFilter?: string;
+  onSelectPeriod?: (period: string) => void;
   onLoadMore?: () => void;
+  onLoadMoreRadar?: () => void;
   onSelectCategory: (category: DashboardTab) => void;
   onOpenAction?: (action: CategoryNextAction) => void;
   onAskAstra?: (action: CategoryNextAction) => void;
@@ -93,7 +98,10 @@ export function CategoryDeskView({
   onSelectUrgency,
   sortOrder = "priority",
   onSelectSort,
+  periodFilter = "all",
+  onSelectPeriod,
   onLoadMore,
+  onLoadMoreRadar,
   onSelectCategory,
   onOpenAction,
   onAskAstra,
@@ -116,14 +124,30 @@ export function CategoryDeskView({
     () => desk?.urgent_count ?? allActions.filter((a) => a.urgency === "high").length,
     [desk?.urgent_count, allActions]
   );
+  const lowCount = useMemo(
+    () =>
+      desk?.low_count ??
+      allActions.filter((a) => a.urgency === "normal" || a.urgency === "low").length,
+    [desk?.low_count, allActions]
+  );
   const filteredActions = useMemo(() => {
     if (urgencyFilter === "emergency") return allActions.filter((a) => a.urgency === "emergency");
     if (urgencyFilter === "high") return allActions.filter((a) => a.urgency === "high");
+    if (urgencyFilter === "low") {
+      return allActions.filter((a) => a.urgency === "normal" || a.urgency === "low");
+    }
     return allActions;
   }, [allActions, urgencyFilter]);
 
   const waitingForUs = desk?.waiting_for_us ?? [];
   const waitingForOther = desk?.waiting_for_other ?? [];
+  const waitingForUsTotal = desk?.waiting_for_us_total ?? waitingForUs.length;
+  const waitingForOtherTotal = desk?.waiting_for_other_total ?? waitingForOther.length;
+  const hasMoreRadar =
+    Boolean(onLoadMoreRadar) &&
+    (waitingForUs.length < waitingForUsTotal || waitingForOther.length < waitingForOtherTotal);
+  const availablePeriods = desk?.available_periods ?? [];
+  const availableYears = useMemo(() => extractPeriodYears(availablePeriods), [availablePeriods]);
 
   const [showAllActions, setShowAllActions] = useState(false);
   const radarRef = React.useRef<HTMLDivElement>(null);
@@ -157,9 +181,9 @@ export function CategoryDeskView({
         </div>
       ) : (
         <>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-0.5">
+          <div className="space-y-2.5 pt-0.5">
             <div className="flex items-center gap-2 min-w-0">
-              <p className="text-[13px] text-[var(--ink-2)]">
+              <p className="text-[13px] text-[var(--ink-2)] leading-snug">
                 <span className="font-semibold text-[var(--ink)]">{label}</span>
                 {offline ? (
                   <span> — Offline. Connect to load open actions.</span>
@@ -174,90 +198,123 @@ export function CategoryDeskView({
               {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--ink-3)] shrink-0" />}
             </div>
 
-            {(waitingForUs.length > 0 || waitingForOther.length > 0) && !offline && (
-              <button
-                type="button"
-                onClick={() => radarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] hover:bg-[var(--selected)] text-[11.5px] font-medium text-[var(--ink-2)] cursor-pointer whitespace-nowrap self-start sm:self-auto"
-              >
-                <Clock className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
-                <span>
-                  {waitingForUs.length} Owed by Us · {waitingForOther.length} Owed by Others
-                </span>
-              </button>
-            )}
-            {onSelectSort && !offline && (
-              <div
-                role="group"
-                aria-label="Sort order"
-                className="inline-flex items-center rounded-lg border border-[var(--line)] p-0.5 bg-[var(--bg)] text-[11.5px] font-medium shrink-0 self-start sm:self-auto"
-              >
-                {(
-                  [
-                    { id: "priority", text: "Urgency" },
-                    { id: "latest", text: "Latest" },
-                  ] as const
-                ).map((s) => (
+            {!offline && (
+              <div className="flex flex-wrap items-center gap-2">
+                {(waitingForUsTotal > 0 || waitingForOtherTotal > 0) && (
                   <button
-                    key={s.id}
                     type="button"
-                    onClick={() => onSelectSort(s.id)}
-                    className={cn(
-                      "px-2.5 py-1 rounded-md transition-colors cursor-pointer whitespace-nowrap",
-                      sortOrder === s.id
-                        ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
-                        : "text-[var(--ink-2)] hover:text-[var(--ink)]"
-                    )}
+                    onClick={() => radarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] hover:bg-[var(--selected)] text-[11.5px] font-medium text-[var(--ink-2)] cursor-pointer whitespace-nowrap"
                   >
-                    {s.text}
+                    <Clock className="w-3.5 h-3.5 text-[var(--accent-ink)]" />
+                    <span>
+                      {waitingForUsTotal} Owed by Us · {waitingForOtherTotal} Owed by Others
+                    </span>
                   </button>
-                ))}
-              </div>
-            )}
-            {onSelectUrgency && !offline && (
-              <div
-                role="group"
-                aria-label="Urgency filter"
-                className="inline-flex items-center rounded-lg border border-[var(--line)] p-0.5 bg-[var(--bg)] text-[11.5px] font-medium shrink-0 self-start sm:self-auto"
-              >
-                {(
-                  [
-                    { id: "all", text: "All", count: allActions.length },
-                    { id: "emergency", text: "Emergency", count: emergencyCount },
-                    { id: "high", text: "Urgent", count: urgentCount },
-                  ] as const
-                ).map((opt) => {
-                  const selected = urgencyFilter === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => onSelectUrgency(opt.id)}
-                      className={cn(
-                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors cursor-pointer whitespace-nowrap",
-                        selected
-                          ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
-                          : "text-[var(--ink-2)] hover:text-[var(--ink)]"
-                      )}
-                    >
-                      <span>{opt.text}</span>
-                      {opt.count > 0 && (
-                        <span
+                )}
+                {onSelectPeriod && (availablePeriods.length > 0 || periodFilter !== "all") && (
+                  <select
+                    aria-label="Filter by period"
+                    value={periodFilter}
+                    onChange={(e) => onSelectPeriod(e.target.value)}
+                    className="rounded-lg border border-[var(--line)] px-2.5 py-1 bg-[var(--bg)] text-[11.5px] font-medium text-[var(--ink)] cursor-pointer"
+                  >
+                    <option value="all">All time</option>
+                    <option value="this_week">This week</option>
+                    {availablePeriods.map((p) => (
+                      <option key={p} value={p}>
+                        {formatPeriodLabel(p)}
+                      </option>
+                    ))}
+                    {availableYears.map((y) => (
+                      <option key={y} value={y}>
+                        Year {y}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {onSelectSort && (
+                  <div
+                    role="group"
+                    aria-label="Sort order"
+                    className="inline-flex items-center rounded-lg border border-[var(--line)] p-0.5 bg-[var(--bg)] text-[11.5px] font-medium shrink-0"
+                  >
+                    {(
+                      [
+                        { id: "priority", text: "Urgent + Latest" },
+                        { id: "latest", text: "Latest" },
+                      ] as const
+                    ).map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => onSelectSort(s.id)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md transition-colors cursor-pointer whitespace-nowrap",
+                          sortOrder === s.id
+                            ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                            : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+                        )}
+                      >
+                        {s.text}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {onSelectUrgency && (
+                  <div
+                    role="group"
+                    aria-label="Urgency filter"
+                    className="inline-flex items-center rounded-lg border border-[var(--line)] p-0.5 bg-[var(--bg)] text-[11.5px] font-medium shrink-0"
+                  >
+                    {(
+                      [
+                        {
+                          id: "all",
+                          text: "All",
+                          count:
+                            urgencyFilter === "all"
+                              ? (desk?.total ?? allActions.length)
+                              : emergencyCount + urgentCount + lowCount,
+                        },
+                        { id: "emergency", text: "Emergency", count: emergencyCount },
+                        { id: "high", text: "Urgent", count: urgentCount },
+                        { id: "low", text: "Low", count: lowCount },
+                      ] as const
+                    ).map((opt) => {
+                      const selected = urgencyFilter === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => onSelectUrgency(opt.id)}
                           className={cn(
-                            "tabular-nums text-[10.5px]",
+                            "inline-flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors cursor-pointer whitespace-nowrap",
                             selected
-                              ? "text-white/85"
-                              : opt.id === "emergency"
-                                ? "text-[#E14D12] font-semibold"
-                                : "text-[var(--ink-3)]"
+                              ? "bg-[var(--ink)] text-white font-semibold shadow-2xs"
+                              : "text-[var(--ink-2)] hover:text-[var(--ink)]"
                           )}
                         >
-                          {opt.count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                          <span>{opt.text}</span>
+                          {opt.count > 0 && (
+                            <span
+                              className={cn(
+                                "tabular-nums text-[10.5px]",
+                                selected
+                                  ? "text-white/85"
+                                  : opt.id === "emergency"
+                                    ? "text-[#E14D12] font-semibold"
+                                    : "text-[var(--ink-3)]"
+                              )}
+                            >
+                              {opt.count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -310,7 +367,9 @@ export function CategoryDeskView({
             <div className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--bg)]/50 px-4 py-5 text-center text-[12.5px] text-[var(--ink-3)]">
               {urgencyFilter === "all"
                 ? `No open ${label.toLowerCase()} messages needing action right now.`
-                : `No ${urgencyFilter === "emergency" ? "emergency" : "urgent"} items in ${label}.`}
+                : urgencyFilter === "low"
+                  ? `No low-priority items in ${label}.`
+                  : `No ${urgencyFilter === "emergency" ? "emergency" : "urgent"} items in ${label}.`}
             </div>
           ) : null}
 
@@ -321,7 +380,7 @@ export function CategoryDeskView({
                   Commitments &amp; Chasing Radar · {label}
                 </h3>
                 <span className="text-[11px] text-[var(--ink-3)] tabular-nums">
-                  {waitingForUs.length + waitingForOther.length} tracked
+                  {waitingForUsTotal + waitingForOtherTotal} tracked
                 </span>
               </div>
 
@@ -336,7 +395,9 @@ export function CategoryDeskView({
                       </span>
                     </div>
                     <span className="text-[11px] font-semibold tabular-nums text-[var(--ink-2)]">
-                      {waitingForUs.length}
+                      {waitingForUs.length < waitingForUsTotal
+                        ? `${waitingForUs.length} of ${waitingForUsTotal}`
+                        : waitingForUsTotal}
                     </span>
                   </div>
                   {waitingForUs.length > 0 ? (
@@ -376,7 +437,9 @@ export function CategoryDeskView({
                       </span>
                     </div>
                     <span className="text-[11px] font-semibold tabular-nums text-[var(--ink-2)]">
-                      {waitingForOther.length}
+                      {waitingForOther.length < waitingForOtherTotal
+                        ? `${waitingForOther.length} of ${waitingForOtherTotal}`
+                        : waitingForOtherTotal}
                     </span>
                   </div>
                   {waitingForOther.length > 0 ? (
@@ -404,6 +467,15 @@ export function CategoryDeskView({
                     </p>
                   )}
                 </div>
+                {hasMoreRadar && (
+                  <button
+                    type="button"
+                    onClick={onLoadMoreRadar}
+                    className="w-full py-2 text-center text-[12px] font-semibold text-[var(--accent-ink)] hover:bg-[var(--selected)] rounded-lg border border-[var(--line)] cursor-pointer transition-colors"
+                  >
+                    Load more commitments &amp; waits
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -431,6 +503,8 @@ export function CategoryDesk({
   const [activeCategory, setActiveCategory] = useCachedState<DashboardTab>("today.category", "finance");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
   const [sortOrder, setSortOrder] = useState<"priority" | "latest">("priority");
+  const [periodFilter, setPeriodFilter] = useState<string>("all");
+  const [radarLimit, setRadarLimit] = useState<number>(15);
   const [desk, setDesk] = useState<CategoryDeskData | null>(() => readView(`today.desk.${activeCategory}`) ?? null);
   const [loading, setLoading] = useState<boolean>(desk === null);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
@@ -458,16 +532,17 @@ export function CategoryDesk({
       return;
     }
     let active = true;
-    setLoading(true);
     getCategoryDesk(activeCategory as BusinessCategory, {
       urgency: urgencyFilter,
       sort: sortOrder,
+      period: periodFilter,
       limit: 10,
       offset: 0,
+      radarLimit,
     }).then((data) => {
       if (!active) return;
       if (data) {
-        if (urgencyFilter === "all" && sortOrder === "priority") {
+        if (urgencyFilter === "all" && sortOrder === "priority" && periodFilter === "all" && radarLimit === 15) {
           writeView(`today.desk.${activeCategory}`, data);
         }
         setDesk(data);
@@ -477,10 +552,12 @@ export function CategoryDesk({
     return () => {
       active = false;
     };
-  }, [activeCategory, urgencyFilter, sortOrder, offline]);
+  }, [activeCategory, urgencyFilter, sortOrder, periodFilter, radarLimit, offline]);
 
   const handleSelect = (category: DashboardTab) => {
     setUrgencyFilter("all");
+    setPeriodFilter("all");
+    setRadarLimit(15);
     const seen = readView<CategoryDeskData>(`today.desk.${category}`);
     if (seen) setDesk(seen);
     setLoading(category !== "all" && !seen);
@@ -493,8 +570,10 @@ export function CategoryDesk({
     const data = await getCategoryDesk(activeCategory as BusinessCategory, {
       urgency: urgencyFilter,
       sort: sortOrder,
+      period: periodFilter,
       limit: 20,
       offset: desk.actions.length,
+      radarLimit,
     });
     if (data) {
       setDesk((prev) =>
@@ -514,11 +593,13 @@ export function CategoryDesk({
     const data = await getCategoryDesk(activeCategory as BusinessCategory, {
       urgency: urgencyFilter,
       sort: sortOrder,
+      period: periodFilter,
       limit: Math.max(10, desk?.actions.length ?? 10),
       offset: 0,
+      radarLimit,
     });
     if (data) {
-      if (urgencyFilter === "all" && sortOrder === "priority") {
+      if (urgencyFilter === "all" && sortOrder === "priority" && periodFilter === "all" && radarLimit === 15) {
         writeView(`today.desk.${activeCategory}`, data);
       }
       setDesk(data);
@@ -560,10 +641,22 @@ export function CategoryDesk({
       loadingMore={loadingMore}
       offline={offline}
       urgencyFilter={urgencyFilter}
-      onSelectUrgency={setUrgencyFilter}
+      onSelectUrgency={(f) => {
+        setLoading(true);
+        setUrgencyFilter(f);
+      }}
       sortOrder={sortOrder}
-      onSelectSort={setSortOrder}
+      onSelectSort={(s) => {
+        setLoading(true);
+        setSortOrder(s);
+      }}
+      periodFilter={periodFilter}
+      onSelectPeriod={(p) => {
+        setLoading(true);
+        setPeriodFilter(p);
+      }}
       onLoadMore={handleLoadMore}
+      onLoadMoreRadar={() => setRadarLimit((prev) => prev + 25)}
       onSelectCategory={handleSelect}
       onOpenAction={(action) => router.push(action.target_url || "/inbox")}
       onAskAstra={onAskAstra}

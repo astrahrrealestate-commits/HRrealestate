@@ -129,3 +129,14 @@ class Understanding(Contract):
         if flagged or data.get("category") in (Category.spam, Category.spam.value):
             return {**data, "sender_role": None}
         return data
+
+
+class OutboundTriage(Contract):
+    """Lightweight fast-tier triage of a sent outbound owner message for commitments & waits."""
+
+    waiting_side: WaitingSide
+    open_obligation: Annotated[NonBlankStr, max_len(200)] | None
+    expected_days: Annotated[int, Field(ge=1, le=60)] | None
+    expected_date: date | None
+    resolved: bool
+    prompt_version: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*/v[0-9]+$")]

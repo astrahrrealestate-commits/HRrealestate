@@ -34,10 +34,13 @@ _RETRY: dict[str, Any] = {
 @DBOS.step(name="ingest.persist_event", **_RETRY)
 def persist_step(raw_event_id: str) -> dict[str, Any]:
     persisted = process.persist_event(get_deps(), UUID(raw_event_id))
+    data = asdict(persisted)
     if persisted.message_id and persisted.route == "none":  # outbound mail: thread it onto its case (idempotent)
         with Session(get_deps().engine) as session, session.begin():
-            case_repo.link_outbound_reply(session, UUID(persisted.message_id))
-    return asdict(persisted)
+            case_id = case_repo.link_outbound_reply(session, UUID(persisted.message_id))
+            if case_id is not None:
+                data["outbound_case_id"] = str(case_id)
+    return data
 
 
 @DBOS.step(name="ingest.mark_failed")
@@ -59,6 +62,9 @@ def process_event(raw_event_id: str) -> str:
         target, prefix = (owner_reply.owner_reply, "owner") if route == "owner" else (pipeline.pipeline_entry, "pipe")
         with SetWorkflowID(f"{prefix}:{message_id}"):  # one routing per message, even if replayed or requeued
             queues.pipeline_queue().enqueue(target, message_id)
+    elif message_id and result.get("outbound_case_id"):
+        with SetWorkflowID(f"out:{message_id}"):
+            queues.pipeline_queue().enqueue(pipeline.outbound_entry, message_id)
     return str(result["outcome"])
 
 

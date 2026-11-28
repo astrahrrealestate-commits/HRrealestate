@@ -1,9 +1,24 @@
 import { InboxThread } from "@/types/inbox";
-import { isNeedsYou } from "@/lib/selectors";
+import { isNeedsYou, isUrgent } from "@/lib/selectors";
 import { SHOWN_CATEGORIES } from "@/lib/categoryLabels";
+
+function matchesThreadPeriod(receivedAt: string, period: string): boolean {
+  const dt = new Date(receivedAt);
+  if (Number.isNaN(dt.getTime())) return false;
+  if (period === "this_week") {
+    return Date.now() - dt.getTime() <= 7 * 86_400_000;
+  }
+  const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+  if (/^\d{4}-\d{2}$/.test(period)) return ym === period;
+  if (/^\d{4}$/.test(period)) return String(dt.getFullYear()) === period;
+  return true;
+}
 
 /** What each option of the inbox filter popover keeps. Ids are `<group>_<name>`; a group is the part before `_`. */
 const OPTION_PREDICATES: Record<string, (t: InboxThread) => boolean> = {
+  urg_emergency: (t) => t.urgency === "emergency",
+  urg_high: (t) => t.urgency === "high" || (isUrgent(t) && t.urgency !== "emergency"),
+  urg_low: (t) => t.urgency === "low" || t.urgency === "normal" || !t.urgency,
   who_tenants: (t) => t.senderKind === "tenant" || t.recipientRole === "tenant",
   who_contractors: (t) => t.senderKind === "contractor" || t.recipientRole === "contractor",
   who_legal: (t) => t.senderKind === "legal" || t.recipientRoleDetail?.toLowerCase() === "legal",
@@ -31,7 +46,14 @@ export function matchesFilters(thread: InboxThread, selectedIds: string[], excep
     if (group === exceptGroup) continue;
     byGroup.set(group, [...(byGroup.get(group) ?? []), id]);
   }
-  return [...byGroup.values()].every((ids) => ids.some((id) => OPTION_PREDICATES[id]?.(thread) ?? false));
+  return [...byGroup.values()].every((ids) =>
+    ids.some((id) => {
+      if (id.startsWith("period_")) {
+        return matchesThreadPeriod(thread.receivedAt, id.slice(7));
+      }
+      return OPTION_PREDICATES[id]?.(thread) ?? false;
+    })
+  );
 }
 
 export function isActivelySnoozed(thread: InboxThread): boolean {
@@ -55,7 +77,9 @@ export function matchesTab(thread: InboxThread, tab: string): boolean {
  * and the options already ticked in the other groups.
  */
 export function optionCount(threads: InboxThread[], tab: string, selectedIds: string[], optionId: string): number {
-  const predicate = OPTION_PREDICATES[optionId];
+  const predicate = optionId.startsWith("period_")
+    ? (t: InboxThread) => matchesThreadPeriod(t.receivedAt, optionId.slice(7))
+    : OPTION_PREDICATES[optionId];
   if (!predicate) return 0;
   return threads.filter(
     (t) => matchesTab(t, tab) && matchesFilters(t, selectedIds, groupOf(optionId)) && predicate(t)

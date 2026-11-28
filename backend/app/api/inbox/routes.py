@@ -9,6 +9,7 @@ import hashlib
 import re
 import threading
 import urllib.parse
+from calendar import monthrange
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -87,7 +88,7 @@ from app.db.models import (
 from app.directory.contacts import link_secondary_identity
 from app.ingestion.gmail_sync import sync_mailbox
 from app.ingestion.process import IngestDeps, company_mailboxes, owner_addresses
-from app.pipeline import dashboard_decisions
+from app.pipeline import case_repo, dashboard_decisions
 from app.pipeline.dashboard_decisions import is_suspicious
 from app.pipeline.enhance import enhance_draft
 from app.storage.ports import ObjectStorage
@@ -728,12 +729,42 @@ def _assemble_cases(
     return live_threads
 
 
+def _period_bounds(
+    period: str, now_dt: datetime, tz_name: str = "Europe/Amsterdam"
+) -> tuple[datetime, datetime] | None:
+    """UTC `[start, end)` bounds for `this_week`, `YYYY-MM`, or `YYYY`; None for `all` or invalid."""
+    p = (period or "all").strip().lower()
+    if not p or p == "all":
+        return None
+    tz = ZoneInfo(tz_name)
+    if p == "this_week":
+        return (now_dt - timedelta(days=7), now_dt + timedelta(days=1))
+    if len(p) == 7 and p[4] == "-":
+        try:
+            year_s, month_s = p.split("-", 1)
+            y, m = int(year_s), int(month_s)
+            _, last_day = monthrange(y, m)
+            start = datetime(y, m, 1, tzinfo=tz).astimezone(UTC)
+            end = (datetime(y, m, last_day, tzinfo=tz) + timedelta(days=1)).astimezone(UTC)
+            return (start, end)
+        except ValueError:
+            return None
+    if len(p) == 4 and p.isdigit():
+        y = int(p)
+        start = datetime(y, 1, 1, tzinfo=tz).astimezone(UTC)
+        end = datetime(y + 1, 1, 1, tzinfo=tz).astimezone(UTC)
+        return (start, end)
+    return None
+
+
 def _inbox_base_query(
     session: Session,
     company_id: UUID,
     *,
     category: str = "all",
     tab: str = "all",
+    urgency: str = "all",
+    period: str = "all",
     search: str = "",
     sort: str = "recent",
     now_dt: datetime,
@@ -742,6 +773,14 @@ def _inbox_base_query(
     if category not in ("all", "contractor_repairs", "contractor_money"):
         with contextlib.suppress(ValueError):
             base_q = base_q.filter(Case.category == Category(category))
+    if urgency == "emergency":
+        base_q = base_q.filter(Case.urgency == Urgency.emergency)
+    elif urgency == "high":
+        base_q = base_q.filter(Case.urgency == Urgency.high)
+    elif urgency == "low":
+        base_q = base_q.filter(Case.urgency.in_((Urgency.normal, Urgency.low)))
+    elif urgency == "urgent":
+        base_q = base_q.filter(Case.urgency.in_((Urgency.emergency, Urgency.high)))
     if tab == "done":
         base_q = base_q.filter(Case.state.in_((CaseState.closed, CaseState.resolved)))
     elif tab == "snoozed":
@@ -792,6 +831,9 @@ def _inbox_base_query(
         .scalar_subquery()
     )
     activity_at = func.coalesce(latest_msg_at, Case.opened_at)
+    bounds = _period_bounds(period, now_dt)
+    if bounds is not None:
+        base_q = base_q.filter(activity_at >= bounds[0], activity_at < bounds[1])
     if sort == "priority":
         closed_rank = sql_case((Case.state.in_((CaseState.closed, CaseState.resolved)), 1), else_=0)
         urgency_rank = sql_case(
@@ -818,6 +860,8 @@ def _build_live_threads(
     audience: str = "all",
     category: str = "all",
     tab: str = "all",
+    urgency: str = "all",
+    period: str = "all",
     search: str = "",
     sort: str = "recent",
     include_html: bool = True,
@@ -830,6 +874,8 @@ def _build_live_threads(
         company_id,
         category=category,
         tab=tab,
+        urgency=urgency,
+        period=period,
         search=search,
         sort=sort,
         now_dt=now_dt,
@@ -913,6 +959,8 @@ def get_inbox_threads(
     audience: str = Query(default="all", description="all, tenants, contractors"),
     category: str = Query(default="all", description="all, maintenance, finance, legal, or contractor_*"),
     tab: str = Query(default="all", description="all, needs_you, unread, done, snoozed"),
+    urgency: str = Query(default="all", description="all, emergency, high, low"),
+    period: str = Query(default="all", description="all, this_week, YYYY-MM, or YYYY"),
     search: str = Query(default="", description="Filter by sender, subject, or summary"),
     sort: str = Query(default="recent", description="recent, oldest, or priority"),
     limit: int = Query(default=20, ge=1, le=100, description="Max threads to return"),
@@ -927,6 +975,8 @@ def get_inbox_threads(
     aud = audience if isinstance(audience, str) else getattr(audience, "default", "all")
     cat = category if isinstance(category, str) else getattr(category, "default", "all")
     tab_val = tab if isinstance(tab, str) else getattr(tab, "default", "all")
+    urg_val = urgency if isinstance(urgency, str) else getattr(urgency, "default", "all")
+    period_val = period if isinstance(period, str) else getattr(period, "default", "all")
     search_val = search if isinstance(search, str) else getattr(search, "default", "")
     sort_mode = sort if isinstance(sort, str) else getattr(sort, "default", "recent")
     lim = limit if isinstance(limit, int) else getattr(limit, "default", 20)
@@ -943,6 +993,8 @@ def get_inbox_threads(
             audience=aud,
             category=cat,
             tab=tab_val,
+            urgency=urg_val,
+            period=period_val,
             search=search_val,
             sort=sort_mode,
             include_html=inc_html,
@@ -952,11 +1004,20 @@ def get_inbox_threads(
             principal.company_id,
             category=cat,
             tab=tab_val,
+            urgency=urg_val,
+            period=period_val,
             search=search_val,
             sort=sort_mode,
             now_dt=datetime.now(UTC),
         ).count()
         total_cases = raw_total if isinstance(raw_total, int) else 0
+        month_col = func.to_char(func.timezone("Europe/Amsterdam", MessageRow.sent_at), "YYYY-MM")
+        month_rows = session.scalars(
+            select(month_col).where(MessageRow.company_id == principal.company_id).group_by(month_col)
+        ).all()
+        available_periods = (
+            sorted([r for r in month_rows if isinstance(r, str)], reverse=True) if isinstance(month_rows, list) else []
+        )
     if not principal.access.can("inbox"):
         live_threads = [headline_only(t) for t in live_threads]
 
@@ -970,6 +1031,7 @@ def get_inbox_threads(
         "has_more": has_more,
         "offset": off,
         "limit": lim,
+        "availablePeriods": available_periods,
         "syncedAt": datetime.now(UTC).isoformat(),
     }
 
@@ -1763,6 +1825,7 @@ def mark_thread_done(
                     actor="owner",
                 )
             )
+        case_repo.close_case_pending(session, principal.company_id, case.id)
     return {"ok": True, "caseId": str(c_uuid), "status": "closed"}
 
 

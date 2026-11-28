@@ -24,6 +24,7 @@ from app.pipeline.next_actions_sources import (
     all_pipeline_items,
     enrich_actions,
     waiting_split,
+    waiting_split_page,
 )
 
 __all__ = [
@@ -31,12 +32,15 @@ __all__ = [
     "BrixxAttentionLike",
     "CategorySummary",
     "NextAction",
+    "action_periods",
     "category_brief",
     "category_summaries",
     "enrich_actions",
+    "matches_period",
     "next_actions",
     "ranked_actions",
     "waiting_split",
+    "waiting_split_page",
 ]
 
 _URGENCY_ORDER = {Urgency.emergency: 0, Urgency.high: 1, Urgency.normal: 2, Urgency.low: 3}
@@ -110,6 +114,7 @@ def _brixx_ranked(items: Sequence[BrixxAttentionLike], viewer: ActionViewer, now
                     approval_id=None,
                     prepared=None,
                     target_url=item.href,
+                    last_at=created,
                 ),
                 created,
             )
@@ -117,7 +122,7 @@ def _brixx_ranked(items: Sequence[BrixxAttentionLike], viewer: ActionViewer, now
     return out
 
 
-def _rank_key(item: RankedItem) -> tuple[int, int, float, int, float, str]:
+def _rank_key(item: RankedItem) -> tuple[int, int, float, float, int, str]:
     a = item.action
     has_due = 0 if a.due_at is not None else 1
     due_ts = a.due_at.timestamp() if a.due_at is not None else 0.0
@@ -125,8 +130,8 @@ def _rank_key(item: RankedItem) -> tuple[int, int, float, int, float, str]:
         _URGENCY_ORDER[a.urgency],
         has_due,
         due_ts,
+        -item.created_at.timestamp(),
         _TIE_PRIORITY[a.kind],
-        item.created_at.timestamp(),
         a.id,
     )
 
@@ -149,13 +154,21 @@ def next_actions(
     limit: int = 15,
     *,
     brixx_items: Sequence[BrixxAttentionLike] = (),
-    urgency_filter: Literal["all", "emergency", "high"] = "all",
+    urgency_filter: Literal["all", "emergency", "high", "low", "urgent"] = "all",
+    period: str = "all",
     now: datetime | None = None,
 ) -> list[NextAction]:
     """The first `limit` ranked next actions of one of the six categories, enriched; empty list for `spam`."""
     ref = now or datetime.now(UTC)
     ranked = ranked_actions(
-        session, company_id, category, viewer, brixx_items=brixx_items, urgency_filter=urgency_filter, now=ref
+        session,
+        company_id,
+        category,
+        viewer,
+        brixx_items=brixx_items,
+        urgency_filter=urgency_filter,
+        period=period,
+        now=ref,
     )
     return enrich_actions(session, company_id, viewer, ranked[: max(1, limit)], now=ref)
 
@@ -175,6 +188,25 @@ def latest_sort_ts(action: NextAction) -> float:
     return stamp.timestamp()
 
 
+def _matches_period(action: NextAction, period: str, ref: datetime) -> bool:
+    from app.pipeline.next_actions_items import matches_period as _mp
+
+    return _mp(action.last_at or action.due_at, period, ref)
+
+
+def matches_period(action: NextAction, period: str, ref: datetime) -> bool:
+    """Public check whether `action` falls inside `all`, `this_week`, `YYYY-MM`, or `YYYY`."""
+    return _matches_period(action, period, ref)
+
+
+def action_periods(actions: Sequence[NextAction]) -> list[str]:
+    """Distinct `YYYY-MM` period keys present across `actions`, newest first."""
+    from app.pipeline.next_actions_items import period_key
+
+    keys = {k for a in actions if (k := period_key(a.last_at or a.due_at)) is not None}
+    return sorted(keys, reverse=True)
+
+
 def ranked_actions(
     session: Session,
     company_id: UUID,
@@ -182,8 +214,9 @@ def ranked_actions(
     viewer: ActionViewer,
     *,
     brixx_items: Sequence[BrixxAttentionLike] = (),
-    urgency_filter: Literal["all", "emergency", "high"] = "all",
+    urgency_filter: Literal["all", "emergency", "high", "low", "urgent"] = "all",
     sort: Literal["priority", "latest"] = "priority",
+    period: str = "all",
     now: datetime | None = None,
 ) -> list[NextAction]:
     """Every next action of one category, ranked and not yet enriched (the brief counts them all).
@@ -203,10 +236,16 @@ def ranked_actions(
             continue
         if urgency_filter == "high" and act.urgency is not Urgency.high:
             continue
+        if urgency_filter == "low" and act.urgency not in (Urgency.normal, Urgency.low):
+            continue
+        if urgency_filter == "urgent" and act.urgency not in (Urgency.emergency, Urgency.high):
+            continue
         if act.case_id is not None and act.kind in _THREAD_KINDS:
             if act.case_id in seen_cases:
                 continue
             seen_cases.add(act.case_id)
+        if not _matches_period(act, period, ref):
+            continue
         ranked.append(act)
     if sort == "latest":
         ranked.sort(key=latest_sort_ts, reverse=True)

@@ -28,4 +28,28 @@ describe("inbox type filter", () => {
     expect(categoryLabel("contractor_update", "en")).toBeNull();
     expect(categoryLabel("spam", "en")).toBeNull();
   });
+
+  it("filters by urgency and month/year period cleanly", () => {
+    const novEmergency = {
+      category: "maintenance",
+      channel: "gmail",
+      urgency: "emergency",
+      receivedAt: "2026-11-28T10:00:00Z",
+    } as unknown as InboxThread;
+    const octNormal = {
+      category: "finance",
+      channel: "gmail",
+      urgency: "normal",
+      receivedAt: "2026-10-14T10:00:00Z",
+    } as unknown as InboxThread;
+
+    expect(matchesFilters(novEmergency, ["urg_emergency"])).toBe(true);
+    expect(matchesFilters(octNormal, ["urg_emergency"])).toBe(false);
+    expect(matchesFilters(octNormal, ["urg_low"])).toBe(true);
+    expect(matchesFilters(novEmergency, ["urg_low"])).toBe(false);
+    expect(matchesFilters(octNormal, ["period_2026-10"])).toBe(true);
+    expect(matchesFilters(novEmergency, ["period_2026-10"])).toBe(false);
+    expect(matchesFilters(octNormal, ["period_2026"])).toBe(true);
+    expect(matchesFilters(octNormal, ["period_2025"])).toBe(false);
+  });
 });

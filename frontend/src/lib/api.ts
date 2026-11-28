@@ -25,6 +25,8 @@ export interface FetchThreadsParams {
   audience?: "all" | "tenants" | "contractors";
   category?: string;
   tab?: string;
+  urgency?: "all" | "emergency" | "high" | "low" | string;
+  period?: string;
   search?: string;
   sort?: "recent" | "oldest" | "priority";
   limit?: number;
@@ -88,12 +90,20 @@ export async function getInboxNeedsYouCount(): Promise<number | null> {
  */
 export async function getInboxThreads(
   params: FetchThreadsParams = {}
-): Promise<{ threads: InboxThread[]; isLive: boolean; total?: number; hasMore?: boolean }> {
+): Promise<{
+  threads: InboxThread[];
+  isLive: boolean;
+  total?: number;
+  hasMore?: boolean;
+  availablePeriods?: string[];
+}> {
   const query = new URLSearchParams();
   if (params.channel && params.channel !== "all") query.set("channel", params.channel);
   if (params.audience && params.audience !== "all") query.set("audience", params.audience);
   if (params.category && params.category !== "all") query.set("category", params.category);
   if (params.tab && params.tab !== "all") query.set("tab", params.tab);
+  if (params.urgency && params.urgency !== "all") query.set("urgency", params.urgency);
+  if (params.period && params.period !== "all") query.set("period", params.period);
   if (params.search && params.search.trim()) query.set("search", params.search.trim());
   if (params.sort && params.sort !== "recent") query.set("sort", params.sort);
   if (params.limit !== undefined) query.set("limit", String(params.limit));
@@ -221,6 +231,7 @@ export async function getInboxThreads(
           isLive: true,
           total: data.total ?? liveThreads.length,
           hasMore: Boolean(data.has_more),
+          availablePeriods: Array.isArray(data.availablePeriods) ? data.availablePeriods : [],
         };
       }
     }
@@ -2301,8 +2312,12 @@ export interface CategoryDeskData {
   has_more?: boolean;
   emergency_count?: number;
   urgent_count?: number;
+  low_count?: number;
   waiting_for_us?: CategoryNextAction[];
   waiting_for_other?: CategoryNextAction[];
+  waiting_for_us_total?: number;
+  waiting_for_other_total?: number;
+  available_periods?: string[];
 }
 
 export async function getDashboardCategories(): Promise<CategorySummaryItem[] | null> {
@@ -2325,11 +2340,13 @@ export async function getDashboardCategories(): Promise<CategorySummaryItem[] | 
 export async function getCategoryDesk(
   category: BusinessCategory,
   options: {
-    urgency?: "all" | "emergency" | "high";
+    urgency?: "all" | "emergency" | "high" | "low";
     sort?: "priority" | "latest";
+    period?: string;
     limit?: number;
     offset?: number;
-  } | "all" | "emergency" | "high" = {}
+    radarLimit?: number;
+  } | "all" | "emergency" | "high" | "low" = {}
 ): Promise<CategoryDeskData | null> {
   try {
     const opts = typeof options === "string" ? { urgency: options } : options;
@@ -2338,6 +2355,8 @@ export async function getCategoryDesk(
     if (opts.offset) query.set("offset", String(opts.offset));
     if (opts.urgency && opts.urgency !== "all") query.set("urgency", opts.urgency);
     if (opts.sort && opts.sort !== "priority") query.set("sort", opts.sort);
+    if (opts.period && opts.period !== "all") query.set("period", opts.period);
+    if (opts.radarLimit) query.set("radar_limit", String(opts.radarLimit));
     const res = await apiFetch(
       `${BACKEND_BASE_URL}/api/dashboard/categories/${encodeURIComponent(category)}?${query.toString()}`,
       {
@@ -2356,8 +2375,14 @@ export async function getCategoryDesk(
         has_more: Boolean(data?.has_more),
         emergency_count: typeof data?.emergency_count === "number" ? data.emergency_count : undefined,
         urgent_count: typeof data?.urgent_count === "number" ? data.urgent_count : undefined,
+        low_count: typeof data?.low_count === "number" ? data.low_count : undefined,
         waiting_for_us: Array.isArray(data?.waiting_for_us) ? data.waiting_for_us : [],
         waiting_for_other: Array.isArray(data?.waiting_for_other) ? data.waiting_for_other : [],
+        waiting_for_us_total:
+          typeof data?.waiting_for_us_total === "number" ? data.waiting_for_us_total : undefined,
+        waiting_for_other_total:
+          typeof data?.waiting_for_other_total === "number" ? data.waiting_for_other_total : undefined,
+        available_periods: Array.isArray(data?.available_periods) ? data.available_periods : [],
       };
     }
   } catch {

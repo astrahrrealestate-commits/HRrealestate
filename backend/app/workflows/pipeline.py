@@ -14,13 +14,14 @@ from app.context.message_origin import is_history
 from app.core.errors import BudgetExceededError
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.core.workflow_names import PIPELINE_ENTRY
+from app.core.workflow_names import OUTBOUND_ENTRY, PIPELINE_ENTRY
 from app.db.models import AttachmentRow, MessageRow
 from app.directory.identity import resolve_message_sender
 from app.ingestion.process import is_transient
 from app.llm.calls import is_transient as llm_transient
 from app.pipeline import case_repo
 from app.pipeline.link import link_message
+from app.pipeline.outbound_understand import process_outbound_message
 from app.pipeline.person_memory import refresh_for_message
 from app.pipeline.propose import propose_for_message
 from app.pipeline.understand import (
@@ -232,6 +233,19 @@ def _after_understanding(message_id: str, final_failure: bool, history: bool = F
     if not history:  # the pre-draft review has no retries; the queued one does, and replays a stored review
         quote_after_understanding(company_id, message_id)
     return True
+
+
+@DBOS.step(name="pipeline.outbound_triage")
+def outbound_triage_step(message_id: str) -> str | None:
+    case_id = process_outbound_message(get_engine(), get_settings(), _as_uuid(message_id))
+    return str(case_id) if case_id else None
+
+
+@DBOS.workflow(name=OUTBOUND_ENTRY)
+def outbound_entry(message_id: str) -> str:
+    """Fast-tier triage for live outbound messages so commitments, waits and expired drafts stay in sync."""
+    case_id = outbound_triage_step(message_id)
+    return "triaged" if case_id else "skipped"
 
 
 @DBOS.workflow(name=PIPELINE_ENTRY)

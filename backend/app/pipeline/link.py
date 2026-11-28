@@ -350,7 +350,13 @@ def _after_link(session: Session, f: _Facts, person_id: UUID, case_id: UUID) -> 
                         about=about,
                         expected_by=due_at,
                     )
-    if _URGENCY_RANK[f.urgency] > _URGENCY_RANK[case.urgency]:
+    if _URGENCY_RANK[f.urgency] > _URGENCY_RANK[case.urgency] or (
+        case.urgency is Urgency.high
+        and f.urgency in (Urgency.normal, Urgency.low)
+        and not f.requires_reply
+        and f.waiting_side is WaitingSide.none
+        and work_repo.active_case_wait(session, f.company_id, case_id) is None
+    ):
         case.urgency = f.urgency
     mark_stale(session, f.company_id, person_id, f.sent_at)
 

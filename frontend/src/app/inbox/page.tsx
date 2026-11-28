@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { useSuperAgent } from "@/context/SuperAgentContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { SHOWN_CATEGORIES, categoryLabel } from "@/lib/categoryLabels";
+import { extractPeriodYears, formatPeriodLabel } from "@/lib/categories";
 import { usePolling } from "@/hooks/usePolling";
 import { useCachedState } from "@/hooks/useCachedState";
 import { readView } from "@/lib/viewCache";
@@ -80,6 +81,7 @@ function InboxContent() {
 
   const [threads, setThreads] = useCachedState<InboxThread[]>("inbox.threads", []);
   const [totalServerThreads, setTotalServerThreads] = useCachedState<number>("inbox.total", 0);
+  const [availablePeriods, setAvailablePeriods] = useCachedState<string[]>("inbox.periods", []);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(() =>
     readView("inbox.threads") === undefined ? "loading" : "ready"
   );
@@ -272,6 +274,19 @@ function InboxContent() {
     return chans.length === 1 ? chans[0].slice(3) : "all";
   }, [selectedFilterIds]);
 
+  const apiUrgency = useMemo(() => {
+    const urgs = selectedFilterIds.filter((id) => id.startsWith("urg_"));
+    if (urgs.length === 0) return "all";
+    if (urgs.length === 1) return urgs[0].slice(4);
+    if (urgs.length === 2 && !urgs.includes("urg_low")) return "urgent";
+    return "all";
+  }, [selectedFilterIds]);
+
+  const apiPeriod = useMemo(() => {
+    const periods = selectedFilterIds.filter((id) => id.startsWith("period_"));
+    return periods.length === 1 ? periods[0].slice(7) : "all";
+  }, [selectedFilterIds]);
+
   const apiSort = useMemo<"recent" | "oldest" | "priority">(() => {
     if (sortBy === "urgency") return "priority";
     if (sortBy === "oldest") return "oldest";
@@ -287,11 +302,13 @@ function InboxContent() {
       offset: 0,
       category: apiCategory,
       channel: apiChannel,
+      urgency: apiUrgency,
+      period: apiPeriod,
       tab: activeTab,
       search: searchQuery,
       sort: apiSort,
     })
-      .then(({ threads: live, isLive, total, hasMore: more }) => {
+      .then(({ threads: live, isLive, total, hasMore: more, availablePeriods: serverPeriods }) => {
         if (!mountedRef.current) return;
         if (!isLive) {
           setLoadState((prev) => (prev === "ready" ? prev : "error"));
@@ -300,6 +317,7 @@ function InboxContent() {
         setLoadState("ready");
         if (total !== undefined) setTotalServerThreads(total);
         if (more !== undefined) setHasMore(more);
+        if (serverPeriods && serverPeriods.length > 0) setAvailablePeriods(serverPeriods);
 
         const firstOfVisit = !freshRef.current;
         freshRef.current = true;
@@ -327,14 +345,14 @@ function InboxContent() {
       .finally(() => {
         inFlightRef.current = false;
       });
-  }, [activeTab, apiCategory, apiChannel, apiSort, searchQuery, setHasMore, setThreads, setTotalServerThreads]);
+  }, [activeTab, apiCategory, apiChannel, apiPeriod, apiSort, apiUrgency, searchQuery, setAvailablePeriods, setHasMore, setThreads, setTotalServerThreads]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchThreads();
     }, searchQuery.trim() ? 250 : 0);
     return () => clearTimeout(timer);
-  }, [activeTab, apiCategory, apiChannel, apiSort, searchQuery, fetchThreads]);
+  }, [activeTab, apiCategory, apiChannel, apiPeriod, apiSort, apiUrgency, searchQuery, fetchThreads]);
 
   // Poll live threads every 8s while visible; background worker handles Gmail ingestion.
   usePolling(fetchThreads, 8000);
@@ -398,6 +416,8 @@ function InboxContent() {
         offset: threads.length,
         category: apiCategory,
         channel: apiChannel,
+        urgency: apiUrgency,
+        period: apiPeriod,
         tab: activeTab,
         search: searchQuery,
         sort: apiSort,
@@ -415,7 +435,7 @@ function InboxContent() {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [activeTab, apiCategory, apiChannel, apiSort, hasMore, isLoadingMore, searchQuery, setHasMore, setThreads, threads.length]);
+  }, [activeTab, apiCategory, apiChannel, apiPeriod, apiSort, apiUrgency, hasMore, isLoadingMore, searchQuery, setHasMore, setThreads, threads.length]);
 
   const handleApproveDraft = async (
     threadId: string,
@@ -552,14 +572,41 @@ function InboxContent() {
   }, [threads, t]);
 
   const sortOptions: SortChoice[] = [
-    { id: "urgency", label: "Sort: Urgency" },
+    { id: "urgency", label: "Sort: Urgent + Latest" },
     { id: "latest", label: "Sort: Latest" },
     { id: "oldest", label: "Sort: Oldest" },
   ];
 
   const filterGroups: FilterGroup[] = useMemo(() => {
     const countOf = (optionId: string) => optionCount(threads, activeTab, selectedFilterIds, optionId);
+    const years = extractPeriodYears(availablePeriods);
     return [
+      {
+        id: "urg",
+        title: t("inbox.filter_urgency", "Urgency"),
+        options: [
+          { id: "urg_emergency", label: "Emergency", count: countOf("urg_emergency") },
+          { id: "urg_high", label: "Urgent", count: countOf("urg_high") },
+          { id: "urg_low", label: "Low", count: countOf("urg_low") },
+        ],
+      },
+      {
+        id: "period",
+        title: t("inbox.filter_period", "Period"),
+        options: [
+          { id: "period_this_week", label: "This week", count: countOf("period_this_week") },
+          ...availablePeriods.map((p) => ({
+            id: `period_${p}`,
+            label: formatPeriodLabel(p),
+            count: countOf(`period_${p}`),
+          })),
+          ...years.map((y) => ({
+            id: `period_${y}`,
+            label: `Year ${y}`,
+            count: countOf(`period_${y}`),
+          })),
+        ],
+      },
       {
         id: "who",
         title: t("inbox.filter_who", "Who"),
@@ -592,7 +639,7 @@ function InboxContent() {
         })),
       },
     ];
-  }, [threads, activeTab, selectedFilterIds, t]);
+  }, [availablePeriods, threads, activeTab, selectedFilterIds, t]);
 
   const handleFilterToggle = (id: string) => {
     setSelectedFilterIds((prev) =>
@@ -606,12 +653,16 @@ function InboxContent() {
       result = result.filter((t) => threadMatchesQuery(t, searchQuery));
     }
 
+    const urgencyTier = (t: InboxThread) => {
+      if (t.urgency === "emergency") return 0;
+      if (t.urgency === "high" || isUrgent(t)) return 1;
+      if (t.urgency === "normal") return 2;
+      return 3;
+    };
     result.sort((a, b) => {
       if (sortBy === "urgency") {
-        const aUrgent = isUrgent(a);
-        const bUrgent = isUrgent(b);
-        if (aUrgent && !bUrgent) return -1;
-        if (!aUrgent && bUrgent) return 1;
+        const diff = urgencyTier(a) - urgencyTier(b);
+        if (diff !== 0) return diff;
       }
       const dateA = new Date(a.receivedAt).getTime() || 0;
       const dateB = new Date(b.receivedAt).getTime() || 0;

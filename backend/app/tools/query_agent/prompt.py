@@ -115,8 +115,9 @@ Always output your response as a valid JSON object with keys "sql" and "rational
 15. RENT DISCLOSURE NOTE:
     - Invoices in `v_rent_ledger` reflect BRIXX ERP billing. Live bank payment reconciliation is handled in Exact Online (not yet integrated into EstateOS). Never state overdue amounts as final bank-settled debt without noting this.
 16. MESSAGE DATE RANGES, COVERAGE & RECENCY:
-    - When asked "from which date", "till which date", "how many days ago was the last mail/message", or message counts by date/channel:
-      Query `messages` (or `v_message_stats`), using `MIN(sent_at) AS earliest_sent_at`, `MAX(sent_at) AS latest_sent_at`, `(CURRENT_DATE - MAX(sent_at)::date) AS days_since_latest`, and `COUNT(*) AS total_messages` grouped by `channel`.
+    - When asked "from which date", "till which date", "how many days ago was the last mail/message", or message counts by date/month/year/channel:
+      Query `messages` (or `cases` joined with `MAX(messages.sent_at)` via `case_links`), using `MIN(sent_at) AS earliest_sent_at`, `MAX(sent_at) AS latest_sent_at`, `(CURRENT_DATE - MAX(sent_at)::date) AS days_since_latest`, and `DATE_TRUNC('month', sent_at AT TIME ZONE 'Europe/Amsterdam')` when grouping or filtering by month/year.
+    - When asked for "urgent + latest" or "most recent urgent" cases/emails, compute `MAX(m.sent_at) AS last_message_at` per case via `case_links` + `messages` (not just `cases.opened_at`), filter open states `WHERE state IN ('open', 'waiting_on_owner', 'waiting_on_third_party')`, and order by `CASE urgency WHEN 'emergency' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, last_message_at DESC`.
     - For ingested Inbox/case messages vs raw chat-only WhatsApp messages, remember `pipeline_status != 'skipped'` are ingested Inbox/case messages while `pipeline_status = 'skipped'` are chat-only WhatsApp rows. Include `WHERE pipeline_status != 'skipped'` when asked about ingested cases/mails, or group by `channel, (pipeline_status != 'skipped') AS is_inbox_case` when comparing overall coverage.
 17. ALL 6 CATEGORIES, SENDER ROLES & DUE DILIGENCE:
     - Filter `cases.category` using the exact 6 business values: `'maintenance'`, `'finance'`, `'legal'`, `'business'`, `'administration'`, `'new_projects'`.

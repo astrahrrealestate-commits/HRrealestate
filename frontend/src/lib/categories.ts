@@ -3,7 +3,43 @@ import type { CategorySummaryItem } from "@/lib/api";
 
 export { SHOWN_CATEGORIES, categoryLabel, type BusinessCategory };
 export type DashboardTab = "all" | BusinessCategory;
-export type UrgencyFilter = "all" | "emergency" | "high";
+export type UrgencyFilter = "all" | "emergency" | "high" | "low";
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+export function formatPeriodLabel(period: string): string {
+  if (!period || period === "all") return "All time";
+  if (period === "this_week") return "This week";
+  if (/^\d{4}-\d{2}$/.test(period)) {
+    const [y, m] = period.split("-");
+    const idx = Number(m) - 1;
+    return idx >= 0 && idx < 12 ? `${MONTH_NAMES[idx]} ${y}` : period;
+  }
+  if (/^\d{4}$/.test(period)) return `Year ${period}`;
+  return period;
+}
+
+export function extractPeriodYears(periods: readonly string[]): string[] {
+  const years = new Set<string>();
+  for (const p of periods) {
+    const m = /^(\d{4})-\d{2}$/.exec(p);
+    if (m) years.add(m[1]);
+  }
+  return Array.from(years).sort((a, b) => b.localeCompare(a));
+}
 
 export function fallbackCategorySummaries(): CategorySummaryItem[] {
   return SHOWN_CATEGORIES.map((category) => ({

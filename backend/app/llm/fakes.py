@@ -56,13 +56,16 @@ def _fake_sender_role(low: str) -> str | None:
 
 def _fake_understanding(prompt: str) -> dict[str, object]:
     low = prompt.lower()
-    if re.search(r"(contract|kündigung|opzeg|verhuis)", low):
+    if re.search(r"(afsluiting)", low):
+        category = Category.administration
+        intent = "Utility notice"
+    elif re.search(r"(contract|kündigung|opzeg|verhuis|dagvaarding|ingebrekestelling|rechtbank)", low):
         category = Category.legal
         intent = "Lease inquiry"
-    elif re.search(r"(lek|leak|overstrom|flood|heizung|verwarming|kapot|broken|gaslucht|\bgas\b|brand|fire)", low):
+    elif re.search(r"(\blek\w*|leak|overstrom|flood|heizung|verwarming|kapot|broken|gaslucht|\bgas\b|brand|fire)", low):
         category = Category.maintenance
         intent = "Maintenance request"
-    elif re.search(r"(huur|miete|\brent\b|betal)", low):
+    elif re.search(r"(huur|miete|\brent\b|betal|betaal|aanmaning|herinnering|deurwaarder)", low):
         category = Category.finance
         intent = "Payment inquiry"
     elif re.search(r"(factuur|invoice)", low):
@@ -75,9 +78,14 @@ def _fake_understanding(prompt: str) -> dict[str, object]:
         category = Category.administration
         intent = "General inquiry"
 
-    if re.search(r"(overstrom|flood|gaslucht|\bgas\b|\bbrand\b|fire|rook|smoke|water staat)", low):
+    if re.search(
+        r"(overstrom|flood|gaslucht|\bgas\b|\bbrand\b|fire|rook|smoke|water staat|dagvaarding|afsluiting|deurwaarder)",
+        low,
+    ):
         urgency = Urgency.emergency
-    elif category is Category.maintenance:
+    elif category is Category.maintenance or re.search(
+        r"(ingebrekestelling|aanmaning|herinnering|laatste kans|spoed|urgent)", low
+    ):
         urgency = Urgency.high
     else:
         urgency = Urgency.normal
@@ -389,6 +397,26 @@ def fake_person_memory(prompt: str) -> dict[str, object]:
     }
 
 
+def _fake_outbound_triage(prompt: str) -> dict[str, object]:
+    low = prompt.lower()
+    if re.search(r"(ik stuur|i will send|i'll send|kom erop terug|come back to you|ik check het|we checken)", low):
+        waiting_side, resolved, obligation = "owner", False, "Owner follow-up promised"
+    elif re.search(
+        r"(kunt u|could you|stuur|offerte|please send|confirm|bevestig|afwachting|zie het .* tegemoet|\?)", low
+    ):
+        waiting_side, resolved, obligation = "third_party", False, "Awaiting counterparty response"
+    else:
+        waiting_side, resolved, obligation = "none", True, None
+    return {
+        "waiting_side": waiting_side,
+        "open_obligation": obligation,
+        "expected_days": None,
+        "expected_date": None,
+        "resolved": resolved,
+        "prompt_version": "outbound_triage/v1",
+    }
+
+
 def model_for(agent_name: str) -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         user_text = _extract_user_text(messages)
@@ -396,6 +424,8 @@ def model_for(agent_name: str) -> FunctionModel:
 
         if agent_name == "understanding":
             args = _fake_understanding(user_text)
+        elif agent_name == "outbound_triage":
+            args = _fake_outbound_triage(user_text)
         elif agent_name == "link_check":
             args = _fake_link_check(user_text)
         elif agent_name == "case_summary":

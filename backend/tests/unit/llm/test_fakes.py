@@ -16,7 +16,11 @@ from app.llm.fakes import _fake_link_check, _fake_understanding
         ("Ik ruik een gaslucht in de keuken", "maintenance", "emergency"),
         ("Brand in de meterkast", "maintenance", "emergency"),
         ("Ik wil mijn huurcontract opzeggen", "legal", "normal"),
+        ("Hierbij de dagvaarding voor de rechtbank", "legal", "emergency"),
+        ("Formele ingebrekestelling wegens gebreken", "legal", "high"),
         ("Wanneer moet ik de huur betalen?", "finance", "normal"),
+        ("Tweede aanmaning: betaal binnen 3 dagen", "finance", "high"),
+        ("Afsluiting van water en elektra aangekondigd", "administration", "emergency"),
         ("Hierbij de factuur voor het werk", "finance", "normal"),
     ],
 )

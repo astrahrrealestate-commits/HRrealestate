@@ -28,14 +28,16 @@ interface InboxThreadListProps {
 }
 
 interface ThreadGroup {
-  id: "urgent" | "today" | "yesterday" | "earlier";
+  id: string;
   label: string;
   threads: InboxThread[];
 }
 
+const MONTH_FORMATTER = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" });
+
 /**
  * InboxThreadList implements Section 5.2:
- * - Group headers (small, grey, sticky): Urgent, Today, Yesterday, Earlier. Only show groups with items.
+ * - Group headers (small, grey, sticky): Urgent (when grouping by urgency), Today, Yesterday, This Week, then Month Year.
  * - Flat list of ThreadRows, right border only, full height.
  * - Empty state: "All clear. Nothing needs you." with no illustration.
  */
@@ -55,33 +57,48 @@ export function InboxThreadList({
   isLoadingMore = false,
   onLoadMore,
 }: InboxThreadListProps) {
-  // Group threads into Urgent, Today, Yesterday, Earlier
+  // Group threads into Urgent (if urgency sort), Today, Yesterday, This Week, then Month Year
   const groupedThreads = useMemo(() => {
     const now = new Date();
+    const todayDay = localDayNumber(now);
     const urgentGroup: InboxThread[] = [];
     const todayGroup: InboxThread[] = [];
     const yesterdayGroup: InboxThread[] = [];
-    const earlierGroup: InboxThread[] = [];
+    const weekGroup: InboxThread[] = [];
+    const monthOrder: string[] = [];
+    const monthBuckets = new Map<string, { label: string; threads: InboxThread[] }>();
 
     threads.forEach((t) => {
-      // 1. Check if thread is Urgent (only when sorting by Urgency)
       if (groupByUrgency && isUrgent(t)) {
         urgentGroup.push(t);
         return;
       }
 
-      // 2. Otherwise group by calendar day difference
       const receivedDate = new Date(t.receivedAt);
-      const diff = isNaN(receivedDate.getTime())
-        ? 0
-        : localDayNumber(now) - localDayNumber(receivedDate);
+      if (isNaN(receivedDate.getTime())) {
+        const key = "earlier";
+        if (!monthBuckets.has(key)) {
+          monthBuckets.set(key, { label: "Earlier", threads: [] });
+          monthOrder.push(key);
+        }
+        monthBuckets.get(key)!.threads.push(t);
+        return;
+      }
 
+      const diff = todayDay - localDayNumber(receivedDate);
       if (diff === 0) {
         todayGroup.push(t);
       } else if (diff === 1) {
         yesterdayGroup.push(t);
+      } else if (diff > 1 && diff < 7) {
+        weekGroup.push(t);
       } else {
-        earlierGroup.push(t);
+        const ym = `${receivedDate.getFullYear()}-${String(receivedDate.getMonth() + 1).padStart(2, "0")}`;
+        if (!monthBuckets.has(ym)) {
+          monthBuckets.set(ym, { label: MONTH_FORMATTER.format(receivedDate), threads: [] });
+          monthOrder.push(ym);
+        }
+        monthBuckets.get(ym)!.threads.push(t);
       }
     });
 
@@ -89,10 +106,10 @@ export function InboxThreadList({
       { id: "urgent", label: "Urgent", threads: urgentGroup },
       { id: "today", label: "Today", threads: todayGroup },
       { id: "yesterday", label: "Yesterday", threads: yesterdayGroup },
-      { id: "earlier", label: "Earlier", threads: earlierGroup },
+      { id: "this_week", label: "This Week", threads: weekGroup },
+      ...monthOrder.map((key) => ({ id: key, ...monthBuckets.get(key)! })),
     ];
 
-    // Filter out groups with 0 items
     return groups.filter((g) => g.threads.length > 0);
   }, [threads, groupByUrgency]);
 

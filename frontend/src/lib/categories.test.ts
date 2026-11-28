@@ -2,7 +2,12 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { CategoryDeskData, CategorySummaryItem } from "@/lib/api";
-import { pickInitialCategory, tabDisplay } from "@/lib/categories";
+import {
+  extractPeriodYears,
+  formatPeriodLabel,
+  pickInitialCategory,
+  tabDisplay,
+} from "@/lib/categories";
 import { CategoryTabs } from "@/components/today/CategoryTabs";
 import { CategoryDeskView } from "@/components/today/CategoryDesk";
 import { DraftCommitments } from "@/components/inbox/DraftCommitments";
@@ -198,6 +203,59 @@ describe("Today Category Desk", () => {
     );
     expect(allHtml).toContain("BRIXX &amp; Calendar Only");
     expect(allHtml).not.toContain("Jansen Gerechtsdeurwaarders");
+  });
+
+  it("renders period selector, total radar counts, and period formatting helpers", () => {
+    expect(formatPeriodLabel("all")).toBe("All time");
+    expect(formatPeriodLabel("this_week")).toBe("This week");
+    expect(formatPeriodLabel("2026-11")).toBe("November 2026");
+    expect(formatPeriodLabel("2026")).toBe("Year 2026");
+    expect(extractPeriodYears(["2026-11", "2026-10", "2025-12"])).toEqual(["2026", "2025"]);
+
+    const desk: CategoryDeskData = {
+      brief: "1 reply ready to approve.",
+      actions: [],
+      available_periods: ["2026-11", "2026-10"],
+      waiting_for_us: [
+        {
+          id: "wait-us:1",
+          category: "maintenance",
+          kind: "reply_needed",
+          title: "Send lease copy",
+          why: "Promised",
+          urgency: "normal",
+          due_at: null,
+          case_id: "c1",
+          approval_id: null,
+          prepared: null,
+          target_url: "/inbox?thread=c1",
+        },
+      ],
+      waiting_for_us_total: 4,
+      waiting_for_other: [],
+      waiting_for_other_total: 0,
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(CategoryDeskView, {
+        summaries: SUMMARIES,
+        activeCategory: "maintenance",
+        desk,
+        periodFilter: "all",
+        onSelectPeriod: () => {},
+        onSelectSort: () => {},
+        onSelectUrgency: () => {},
+        onLoadMoreRadar: () => {},
+        onSelectCategory: () => {},
+      })
+    );
+    expect(html).toContain("Urgent + Latest");
+    expect(html).toContain("Emergency");
+    expect(html).toContain("Low");
+    expect(html).not.toContain(">Priority<");
+    expect(html).toContain("November 2026");
+    expect(html).toContain("Year 2026");
+    expect(html).toContain("1 of 4");
+    expect(html).toContain("Load more commitments &amp; waits");
   });
 });
 
